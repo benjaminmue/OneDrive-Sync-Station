@@ -264,6 +264,13 @@ export const en = {
     "another copy. Either add the folder to the selection, or move the files " +
     "somewhere the station does not manage.",
   "skips.more": "and {n} more",
+  "picker.localOnly": "only here",
+  "picker.localOnlyTitle":
+    "This folder exists on this server but not in OneDrive. It is only uploaded " +
+    "once it is part of the selection; until then it has no copy anywhere else.",
+  "picker.unprotected":
+    "{n} folder(s) exist only on this server and are not in your selection. Tick " +
+    "them to have them uploaded, or move them out of the data path.",
   "picker.reload": "Reload list",
   "picker.expand": "Expand",
   "picker.collapse": "Collapse",
@@ -1693,6 +1700,17 @@ function buildFolderLevel(nodes, textarea) {
     box.addEventListener("change", () => setFolderRule(textarea, node.path, box.checked));
 
     const label = el("label", { className: "folder-row" }, box, el("span", { text: node.name }));
+    // Exists here but not online: worth flagging, because an unticked one is a
+    // folder whose only copy is on this server.
+    if (node.localOnly) {
+      label.append(
+        el("span", {
+          text: t("picker.localOnly"),
+          className: box.checked ? "chip local" : "chip local warn",
+          attrs: { title: t("picker.localOnlyTitle") },
+        })
+      );
+    }
     item.append(label);
 
     if (node.children.length) {
@@ -1754,7 +1772,24 @@ function buildFolderPicker(id, textarea, opts = {}) {
         body.replaceChildren(el("p", { text: t("picker.empty"), className: "hint" }));
         return;
       }
+      // Counted before rendering: a folder that exists only here and is not
+      // selected has no copy anywhere, and that deserves a sentence rather than
+      // a subtle chip somewhere in a long list.
+      const unprotected = [];
+      const scan = (nodes) => {
+        for (const node of nodes) {
+          if (node.localOnly && !hasFolderRule(textarea, node.path)) unprotected.push(node.path);
+          scan(node.children);
+        }
+      };
+      scan(res.folders);
+
       const parts = [buildFolderLevel(res.folders, textarea)];
+      if (unprotected.length) {
+        parts.unshift(
+          el("p", { text: t("picker.unprotected", { n: unprotected.length }), className: "msg warn-note" })
+        );
+      }
       // Say which source answered: a list of local directories cannot show
       // folders that were never synced, and the user has to know that to trust
       // what is missing from it.

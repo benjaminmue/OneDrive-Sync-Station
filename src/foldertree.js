@@ -234,6 +234,20 @@ export function treeFromPaths(paths) {
 }
 
 /**
+ * Flag folders that exist locally but are unknown online.
+ * @param {FolderNode[]} nodes Tree to walk.
+ * @param {Set<string>} remote Paths known from any online source.
+ * @returns {void}
+ */
+function markLocalOnly(nodes, remote) {
+  for (const node of nodes) {
+    const relative = node.path.replace(new RegExp("^\/"), "");
+    node.localOnly = !remote.has(relative);
+    markLocalOnly(node.children, remote);
+  }
+}
+
+/**
  * Merge several sets of folder paths into one tree.
  *
  * The sources have to add up rather than take turns. A discovery run only names
@@ -387,18 +401,27 @@ export function readFolderTree(instance) {
     //
     // Together they cover the account. Letting one source win, as this did
     // before, produced a list that shrank as syncing progressed.
-    const paths = mergePaths([
+    const remote = mergePaths([
       flattenPaths(safeTreeFrom(databasePath(instance))),
       flattenPaths(safeTreeFrom(dryRunDatabasePath(instance))),
       readDiscoveredPaths(instance),
-      flattenPaths(readLocalTree(instance).folders),
     ]);
+    const local = flattenPaths(readLocalTree(instance).folders);
+    const paths = mergePaths([remote, local]);
 
     if (!paths.length) return { available: false, reason: "not-synced-yet", folders: [] };
+
+    // A folder that exists here but is unknown online was created on this
+    // server. If the selection does not cover it, nothing ever uploads it and
+    // nothing says so, which is how an unprotected folder goes unnoticed.
+    const remoteSet = new Set(remote);
+    const folders = treeFromPaths(paths.slice(0, MAX_FOLDERS));
+    markLocalOnly(folders, remoteSet);
+
     return {
       available: true,
       source: "combined",
-      folders: treeFromPaths(paths.slice(0, MAX_FOLDERS)),
+      folders,
       truncated: paths.length > MAX_FOLDERS,
     };
   } catch (err) {

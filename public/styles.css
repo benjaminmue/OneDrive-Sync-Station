@@ -704,3 +704,9 @@ code { font-family: var(--mono); font-size: 12px; }
   font-size: 12px;
   color: var(--text-muted);
 }
+
+/* A folder that exists only on this server. Neutral while selected, a warning
+   while not: unselected means its only copy is here. */
+.chip.local { font-size: 11px; padding: 1px 7px; color: var(--text-faint); }
+.chip.local.warn { color: var(--warn); border-color: var(--warn); }
+.warn-note { background: rgba(217, 160, 63, 0.12); color: var(--warn); }

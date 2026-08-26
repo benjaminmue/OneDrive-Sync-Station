@@ -8,6 +8,16 @@ Every published image carries a version. The header of the web UI shows it
 together with the commit the image was built from, so it is always possible to
 tell which build is running.
 
+## [0.2.1] - 2026-08-26
+
+### Added
+
+- Folders that exist on this server but not in OneDrive are marked as such in
+  the folder list, and a note above the list counts the ones the selection does
+  not cover. A folder created here stays here until it is selected, and until
+  now nothing said so: the existing report only sees files, so an empty new
+  folder was silently left without a copy anywhere.
+
 ## [0.2.0] - 2026-08-26
 
 First version exercised against real Microsoft accounts. A personal account and
