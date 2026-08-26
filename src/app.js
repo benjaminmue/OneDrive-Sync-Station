@@ -117,6 +117,9 @@ export async function createApp() {
     // than it needs to know.
     return {
       version: pkg.version,
+      // The package version stays put across rebuilds, so it cannot answer the
+      // question an operator has right after an update: is this the new image?
+      build: process.env.BUILD_REF ? process.env.BUILD_REF.slice(0, 7) : null,
       clientVersion: client.ok ? client.text.split("\n")[0] : null,
       setupNeeded: !settings.guiPasswordHash,
       authed,
@@ -404,7 +407,11 @@ export async function createApp() {
       const resume = ({ id, running: stillRunning }) => {
         if (id !== instance.id || stillRunning) return;
         discovery.events.off("discovery", resume);
-        supervisor.start(instances.requireInstance(instance.id));
+        // With --resync from the outset. The run moved the selection aside and
+        // put it back, which the client counts as two configuration changes and
+        // answers with EXIT_RESYNC_REQUIRED. Granting it up front costs one
+        // resync either way and avoids two failed starts on the way there.
+        supervisor.start(instances.requireInstance(instance.id), { resync: true });
       };
       discovery.events.on("discovery", resume);
     }

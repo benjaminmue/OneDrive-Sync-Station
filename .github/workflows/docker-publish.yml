@@ -62,6 +62,9 @@ jobs:
         with:
           context: .
           platforms: linux/amd64
+          build-args: |
+            BUILD_REF=${{ github.sha }}
+            BUILD_DATE=${{ github.run_started_at }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

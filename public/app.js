@@ -643,6 +643,9 @@ async function refreshState() {
   const state = await api("/api/state");
   dataDir = state.dataDir || "";
   const parts = [`v${state.version}`];
+  // The build stamp is what tells an operator whether an update took effect:
+  // the package version is identical across every rebuild.
+  if (state.build) parts.push(t("app.metaBuild", { ref: state.build }));
   if (state.clientVersion) parts.push(t("app.metaClient", { version: state.clientVersion }));
   $("meta").textContent = parts.join(" · ");
 
@@ -1519,8 +1522,12 @@ async function openFoldersPanel(card, id, opts = {}) {
   // The picker writes into this same textarea rather than keeping a selection
   // of its own: the rules stay the single source of truth, so a hand-written
   // rule is never silently overwritten by a checkbox.
-  panel.append(buildFolderPicker(id, textarea));
-  panel.append(textarea);
+  // Mounted but not filled yet: the picker reads the rules to decide which
+  // boxes are ticked, and the editor is filled from the API further down. Doing
+  // both at once produced a picker with everything unticked next to an editor
+  // that plainly listed the selected folders.
+  const picker = buildFolderPicker(id, textarea, { defer: true });
+  panel.append(picker, textarea);
   panel.append(
     el("p", { text: t("folders.warn"), className: "warn" }),
     el("p", { text: t("folders.warnRemoval"), className: "warn" })
@@ -1553,6 +1560,10 @@ async function openFoldersPanel(card, id, opts = {}) {
   const current = await api(`/api/instances/${id}/synclist`);
   if (card.open !== "folders") return;
   textarea.value = current.text;
+  // Only now: the picker ticks its boxes by reading these rules, so loading it
+  // any earlier showed everything unticked next to an editor that plainly
+  // listed the selected folders.
+  picker.load();
   textarea.focus();
 }
 
@@ -1706,7 +1717,7 @@ function buildFolderLevel(nodes, textarea) {
  * @param {HTMLTextAreaElement} textarea The rules editor this picker feeds.
  * @returns {HTMLElement} The picker element.
  */
-function buildFolderPicker(id, textarea) {
+function buildFolderPicker(id, textarea, opts = {}) {
   const wrap = el("div", { className: "folder-picker" });
   const head = el("div", { className: "section-head" });
   head.append(el("h4", { text: t("picker.title") }));
@@ -1761,6 +1772,9 @@ function buildFolderPicker(id, textarea) {
     }
   };
 
+  // Exposed so the caller can start the load once the rules are in the editor.
+  wrap.load = load;
+
   reload.addEventListener("click", async () => {
     const account = model.get(id);
     // Re-reading the stored list would only show the same snapshot again: a
@@ -1785,7 +1799,7 @@ function buildFolderPicker(id, textarea) {
     }
     load();
   });
-  load();
+  if (!opts.defer) load();
   return wrap;
 }
 

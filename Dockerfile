@@ -49,7 +49,16 @@ RUN git clone --depth 1 --branch "${ONEDRIVE_VERSION}" \
 
 FROM node:24-trixie-slim
 ARG ONEDRIVE_VERSION
-ENV NODE_ENV=production
+
+# Stamped into the image so a running container can say which build it is. The
+# package version cannot answer that: it stays at 0.1.0 across every rebuild, so
+# after an update there is no way to tell whether the new image actually took
+# effect.
+ARG BUILD_REF=unknown
+ARG BUILD_DATE=unknown
+ENV BUILD_REF=${BUILD_REF} \
+    BUILD_DATE=${BUILD_DATE} \
+    NODE_ENV=production
 WORKDIR /app
 
 # Runtime libraries of the client plus gosu, used by the entrypoint to drop from
