@@ -204,6 +204,9 @@ export const en = {
     "The client knows no folders for this account yet. That is expected right " +
     "after a resync that has not finished, and for an account whose drive is " +
     "empty. Reload once the sync has run.",
+  "picker.sourceLocal":
+    "Listing the folders that are already on this server. Folders you have never " +
+    "synced are not in here yet; add those as a rule by hand.",
   "picker.reload": "Reload list",
   "picker.expand": "Expand",
   "picker.collapse": "Collapse",
@@ -1429,6 +1432,12 @@ function buildFolderPicker(id, textarea) {
         return;
       }
       const parts = [buildFolderLevel(res.folders, textarea)];
+      // Say which source answered: a list of local directories cannot show
+      // folders that were never synced, and the user has to know that to trust
+      // what is missing from it.
+      if (res.source === "local-files") {
+        parts.unshift(el("p", { text: t("picker.sourceLocal"), className: "hint" }));
+      }
       if (res.truncated) parts.push(el("p", { text: t("picker.truncated"), className: "hint" }));
       body.replaceChildren(...parts);
     } catch (err) {

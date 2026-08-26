@@ -18,10 +18,10 @@
 // columns are reported as "not available yet" rather than thrown at the user,
 // and the UI keeps the plain rule editor as the way that always works.
 
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { instanceConfDir } from "./config.js";
+import { instanceConfDir, instanceDataDir } from "./config.js";
 import { log } from "./logger.js";
 
 /** File the client keeps its item cache in, inside its config directory. */
@@ -126,6 +126,72 @@ function countNodes(nodes) {
   return nodes.reduce((total, node) => total + 1 + countNodes(node.children), 0);
 }
 
+/** How deep the local fallback descends. Deeper folders are still selectable by hand. */
+const LOCAL_MAX_DEPTH = 6;
+
+/**
+ * Build the folder tree from the directories that exist on disk.
+ *
+ * The fallback for when the item cache has nothing to offer: right after a
+ * resync, for an account whose client never finished a run, or if the client's
+ * schema ever moves. It can only show what is already synced, which is useless
+ * for picking folders before the first sync but exactly right afterwards, when
+ * the question is which of the existing folders to keep.
+ *
+ * @param {string} root Absolute path of the account's data directory.
+ * @param {number} depth Remaining depth to descend.
+ * @param {string} prefix Path prefix for the nodes at this level.
+ * @param {{count: number}} budget Shared node budget, so a huge tree cannot run away.
+ * @returns {FolderNode[]} Folders at this level, sorted by name.
+ */
+function readLocalLevel(root, depth, prefix, budget) {
+  if (depth <= 0 || budget.count >= MAX_FOLDERS) return [];
+  let entries;
+  try {
+    entries = readdirSync(root, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+
+  const nodes = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    // Hidden directories are the client's own bookkeeping and other tools'
+    // metadata; nobody selects those on purpose.
+    if (entry.name.startsWith(".")) continue;
+    if (budget.count >= MAX_FOLDERS) break;
+    budget.count += 1;
+    const path = `${prefix}/${entry.name}`;
+    nodes.push({
+      name: entry.name,
+      path,
+      children: readLocalLevel(join(root, entry.name), depth - 1, path, budget),
+    });
+  }
+  nodes.sort((a, b) => a.name.localeCompare(b.name));
+  return nodes;
+}
+
+/**
+ * Read the folder tree from the local data directory of an account.
+ * @param {object} instance Instance record.
+ * @returns {{available: boolean, reason?: string, folders: FolderNode[], source?: string, truncated?: boolean}} The tree or why there is none.
+ */
+function readLocalTree(instance) {
+  const root = instanceDataDir(instance.folder);
+  if (!existsSync(root)) return { available: false, reason: "not-synced-yet", folders: [] };
+
+  const budget = { count: 0 };
+  const folders = readLocalLevel(root, LOCAL_MAX_DEPTH, "", budget);
+  if (!folders.length) return { available: false, reason: "not-synced-yet", folders: [] };
+  return {
+    available: true,
+    source: "local-files",
+    folders,
+    truncated: budget.count >= MAX_FOLDERS,
+  };
+}
+
 /**
  * Read the remote folder tree of an account.
  *
@@ -139,24 +205,31 @@ function countNodes(nodes) {
  */
 export function readFolderTree(instance) {
   const file = databasePath(instance);
-  if (!existsSync(file)) {
-    return { available: false, reason: "not-synced-yet", folders: [] };
-  }
+  if (!existsSync(file)) return readLocalTree(instance);
 
   try {
     const rows = readFolderRows(file);
     const folders = buildTree(rows);
+    // An empty cache is not an answer, it is the absence of one: the client
+    // clears it on a resync and refills it as it goes, so a listing taken in
+    // between would tell the user their account has no folders.
+    if (!folders.length) return readLocalTree(instance);
     const total = countNodes(folders);
     return {
       available: true,
+      source: "client-database",
       folders,
       truncated: total > MAX_FOLDERS,
     };
   } catch (err) {
     // A locked database is transient, anything else means the schema moved
     // under us. Both leave the user with the rule editor, so neither is fatal.
-    const locked = /locked|busy/i.test(err.message || "");
     log.warn("could not read the folder tree", { instance: instance.id, err: err.message });
+    // Whatever went wrong with the cache, the directories on disk are still
+    // there, and a partial list beats an empty panel.
+    const local = readLocalTree(instance);
+    if (local.available) return local;
+    const locked = /locked|busy/i.test(err.message || "");
     return {
       available: false,
       reason: locked ? "database-busy" : "unreadable",

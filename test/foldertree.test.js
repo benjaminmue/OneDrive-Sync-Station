@@ -7,7 +7,7 @@
 
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { writeFileSync } from "node:fs";
+import { writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { bootstrap } from "./helpers.mjs";
@@ -117,4 +117,33 @@ test("a damaged database degrades to no list, not to an exception", () => {
   assert.equal(res.available, false);
   assert.equal(res.reason, "unreadable");
   assert.deepEqual(res.folders, []);
+});
+
+test("an empty item cache falls back to the folders on disk", () => {
+  // The client clears its cache on a resync and refills it as it goes. A
+  // listing taken in between must not tell the user their account is empty.
+  const other = env.instances.createInstance({ name: "Local Fallback", type: "personal" });
+  writeItemDatabase(join(env.root, "config", "instances", other.id, "items.sqlite3"), []);
+  mkdirSync(join(env.root, "data", other.folder, "Dokumente", "Projekte"), { recursive: true });
+  mkdirSync(join(env.root, "data", other.folder, ".hidden"), { recursive: true });
+
+  const res = foldertree.readFolderTree(other);
+  assert.equal(res.available, true);
+  assert.equal(res.source, "local-files");
+  assert.deepEqual(res.folders.map((node) => node.name), ["Dokumente"]);
+  assert.equal(res.folders[0].children[0].path, "/Dokumente/Projekte");
+});
+
+test("a damaged cache falls back too, rather than showing nothing", () => {
+  const other = env.instances.createInstance({ name: "Broken Cache", type: "personal" });
+  writeFileSync(
+    join(env.root, "config", "instances", other.id, "items.sqlite3"),
+    "not a database"
+  );
+  mkdirSync(join(env.root, "data", other.folder, "Bilder"), { recursive: true });
+
+  const res = foldertree.readFolderTree(other);
+  assert.equal(res.available, true);
+  assert.equal(res.source, "local-files");
+  assert.deepEqual(res.folders.map((node) => node.name), ["Bilder"]);
 });
