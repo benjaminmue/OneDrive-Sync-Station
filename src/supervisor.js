@@ -31,6 +31,20 @@ events.setMaxListeners(100);
 /** An exit within this window after start counts as a failed start. */
 const STARTUP_GRACE_MS = 20_000;
 
+/**
+ * The client's own exit code for "a resync is required" (EXIT_RESYNC_REQUIRED
+ * in its main.d). It reports this and stops whenever its configuration file
+ * changed since the last run, which includes the very first run after a
+ * sign-in, when there is no previous configuration to compare against.
+ *
+ * This is a request, not a crash: the answer is to start again with --resync
+ * rather than to back off and retry the same thing.
+ */
+const EXIT_RESYNC_REQUIRED = 126;
+
+/** How long to wait before the automatic restart that carries the resync. */
+const RESYNC_RECOVERY_DELAY_MS = 1000;
+
 /** Backoff bounds for automatic restarts after a failed start. */
 const RESTART_BASE_MS = 5_000;
 const RESTART_MAX_MS = 300_000;
@@ -49,6 +63,7 @@ const STOP_GRACE_MS = 15_000;
  * @property {NodeJS.Timeout|null} killTimer Pending forced kill.
  * @property {{code: number|null, signal: string|null, at: number}|null} lastExit Last exit info.
  * @property {boolean} resyncPending Whether the next start must add --resync.
+ * @property {boolean} resyncRecoveryUsed Whether the one-shot resync recovery was already spent.
  * @property {Array<() => void>} exitWaiters Resolvers waiting for the process to be gone.
  * @property {ReturnType<typeof createRingBuffer>} buffer Recent client output.
  */
@@ -74,6 +89,7 @@ function runnerFor(id) {
       killTimer: null,
       lastExit: null,
       resyncPending: false,
+      resyncRecoveryUsed: false,
       exitWaiters: [],
       buffer: createRingBuffer(400),
     };
@@ -236,6 +252,25 @@ function handleGone(instance, code, signal, opts) {
     return;
   }
 
+  // The client asked for a resync instead of failing. Grant it once and start
+  // again straight away: backing off would only repeat the same request, which
+  // is what makes an account look permanently broken after any configuration
+  // change. Granting it only once keeps a client that asks again from looping,
+  // and the counter resets as soon as a start survives the grace period.
+  if (code === EXIT_RESYNC_REQUIRED && !state.resyncRecoveryUsed) {
+    state.resyncRecoveryUsed = true;
+    state.resyncPending = true;
+    record(instance.id, "[station] the client requires a resync, restarting with --resync");
+    log.info("resync required by client", { instance: instance.id });
+    clearTimer(state, "restartTimer");
+    state.restartTimer = setTimeout(() => {
+      state.restartTimer = null;
+      if (state.wantRunning) spawnClient(instance);
+    }, RESYNC_RECOVERY_DELAY_MS);
+    announce(instance.id);
+    return;
+  }
+
   // Exiting quickly after a start means the client could not do its job at all
   // (bad config, expired authorisation, no network). Backing off keeps a broken
   // instance from spinning. A restart we asked for is excluded: without that,
@@ -243,6 +278,10 @@ function handleGone(instance, code, signal, opts) {
   // loop and push the instance into a five minute backoff.
   const failedStart = !wasIntentional && (opts.spawnFailed || ranFor < STARTUP_GRACE_MS);
   state.failures = failedStart ? state.failures + 1 : 0;
+  // A start that survived the grace period proves the client is working again,
+  // so the one-shot resync recovery is available for the next configuration
+  // change instead of being spent for the lifetime of the container.
+  if (!failedStart) state.resyncRecoveryUsed = false;
   const delay = failedStart
     ? Math.min(RESTART_BASE_MS * 2 ** (state.failures - 1), RESTART_MAX_MS)
     : RESTART_BASE_MS;

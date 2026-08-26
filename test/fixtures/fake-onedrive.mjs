@@ -128,6 +128,18 @@ if (has("--sync") && has("--dry-run")) {
 // station has something to tail and a process to supervise.
 if (has("--monitor")) {
   const exitAfter = Number(process.env.FAKE_MONITOR_EXIT || 0);
+
+  // The real client refuses to run and exits with EXIT_RESYNC_REQUIRED (126)
+  // when its configuration changed since the last run, which includes the very
+  // first run after a sign-in. A marker file reproduces that: the demand is
+  // raised once and satisfied by a start that carries --resync.
+  const resyncMarker = join(confDir || ".", ".resync-demanded");
+  if (process.env.FAKE_DEMAND_RESYNC === "1" && !has("--resync") && !existsSync(resyncMarker)) {
+    writeFileSync(resyncMarker, "demanded\n");
+    process.stdout.write("An application configuration change has been detected\n");
+    process.exit(126);
+  }
+
   process.stdout.write(`Starting monitor mode for ${syncDir}\n`);
   if (has("--resync")) process.stdout.write("Performing a database resync\n");
 

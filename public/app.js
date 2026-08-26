@@ -110,12 +110,19 @@ export const en = {
   "signin.open": "Open Microsoft sign-in",
   "signin.copy": "Copy link",
   "signin.copied": "Link copied to the clipboard.",
-  "signin.step2Title": "You will land on a blank page, and that is expected.",
+  "signin.step2Title": "Microsoft will warn you on the next page. Read this first.",
   "signin.step2Text":
-    "After the sign-in, Microsoft redirects your browser to an empty white page. " +
-    "Nothing went wrong: the address of that blank page carries your authorisation " +
-    "code, and that address is all the station needs.",
-  "signin.step3Title": "Paste the address of that blank page here.",
+    "After the sign-in you land on a near-empty page that says the URL contains " +
+    "your password and should not be shared. That warning exists because " +
+    "attackers do ask people for exactly this address. It is not a password: it " +
+    "is a one-time code that only this station can redeem, and it expires within " +
+    "minutes. Pasting it below is the intended way. Give it to nobody else, and " +
+    "never to someone who asked you for it.",
+  "signin.step2Hurry":
+    "Copy the address straight away. The page redirects itself after a few " +
+    "seconds, and the code is gone from the address bar afterwards. If that " +
+    "happens, close the tab and start the sign-in again.",
+  "signin.step3Title": "Paste the address of that page here.",
   "signin.step3Text":
     "Copy the full URL from the browser's address bar. It starts with " +
     "https://login.microsoftonline.com/… and contains code=…",
@@ -810,7 +817,8 @@ async function openSignInPanel(card, id) {
       "li",
       {},
       el("strong", { text: t("signin.step2Title") }),
-      el("p", { text: t("signin.step2Text"), className: "hint" })
+      el("p", { text: t("signin.step2Text"), className: "hint" }),
+      el("p", { text: t("signin.step2Hurry"), className: "hint warn-hint" })
     )
   );
 
