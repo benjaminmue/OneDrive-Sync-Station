@@ -151,7 +151,14 @@ if (has("--get-sharepoint-drive-id") && has("--resync")) {
   process.exit(1);
 }
 
-if (has("--get-sharepoint-drive-id") && confDir && existsSync(join(confDir, ".needs-resync"))) {
+// FAKE_LOOKUP_ALWAYS_REFUSED makes even a pristine directory demand a resync,
+// which is what the real client was observed doing and what the station has to
+// report rather than crash on.
+if (
+  has("--get-sharepoint-drive-id") &&
+  confDir &&
+  (existsSync(join(confDir, ".needs-resync")) || process.env.FAKE_LOOKUP_ALWAYS_REFUSED)
+) {
   console.log("Reading configuration file: " + join(confDir, "config"));
   console.log("Configuration file successfully loaded");
   console.log("");

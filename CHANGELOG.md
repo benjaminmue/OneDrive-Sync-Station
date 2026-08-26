@@ -8,6 +8,14 @@ Every published image carries a version. The header of the web UI shows it
 together with the commit the image was built from, so it is always possible to
 tell which build is running.
 
+## [0.2.6] - 2026-08-27
+
+### Fixed
+
+- The directory listing added in 0.2.5 assigned to a constant and turned every
+  refused lookup into an internal error. The path had no test, which is why it
+  shipped; it has one now.
+
 ## [0.2.5] - 2026-08-27
 
 ### Added

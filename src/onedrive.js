@@ -342,7 +342,7 @@ async function lookupInScratchDir(instance, siteName) {
     // only way to tell which, and the directory is gone a moment later.
     if (!res.ok) {
       const contents = readdirSync(scratch).sort().join(", ") || "(empty)";
-      res = { ...res, text: `${res.text}
+      return { ...res, text: `${res.text}
 
 [station] isolated run, directory held: ${contents}` };
     }

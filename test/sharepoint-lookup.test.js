@@ -115,3 +115,22 @@ test("the lookup reports the site it actually asked for", async () => {
   assert.equal(res.site, "instagram");
   assert.equal(res.libraries[0].name, "instagram Documents");
 });
+
+test("a lookup refused even in its own directory reports, and does not crash", async () => {
+  const instance = env.instances.requireInstance("work");
+  writeFileSync(join(confDir, ".needs-resync"), "");
+  process.env.FAKE_LOOKUP_ALWAYS_REFUSED = "1";
+
+  try {
+    const res = await env.onedrive.getSharePointDriveId(instance, "Marketing");
+    assert.equal(res.ok, false);
+    assert.equal(res.attempt, "isolated-still-refused");
+    // The directory listing is the whole point of this path: the refusal blames
+    // a configuration file, and this says which files were actually present.
+    assert.match(res.text, /\[station\] isolated run, directory held: /);
+    assert.match(res.text, /refresh_token/);
+  } finally {
+    delete process.env.FAKE_LOOKUP_ALWAYS_REFUSED;
+    rmSync(join(confDir, ".needs-resync"));
+  }
+});
