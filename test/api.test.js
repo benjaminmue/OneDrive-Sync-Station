@@ -164,6 +164,27 @@ test("saving a folder selection triggers the resync the client requires", async 
   assert.ok(resynced, "the restarted client received --resync");
 });
 
+test("the sync interval is set per account and reaches the client config", async () => {
+  const res = await call("PATCH", "/api/instances/work-business", {
+    options: { monitorInterval: 900 },
+  });
+  assert.equal(res.statusCode, 200);
+  assert.equal(body(res).options.monitorInterval, 900);
+
+  // The client reads the value from its own config file, so the setting is only
+  // real once it is written there, in this account's directory alone.
+  const config = await call("GET", "/api/instances/work-business/config");
+  assert.match(body(config).text, /monitor_interval = "900"/);
+
+  // Below the client's own lower bound of 300 seconds it would silently clamp,
+  // so the API refuses it rather than showing a value that is not in effect.
+  const tooShort = await call("PATCH", "/api/instances/work-business", {
+    options: { monitorInterval: 60 },
+  });
+  assert.equal(tooShort.statusCode, 400);
+  assert.equal(body(tooShort).field, "monitorInterval");
+});
+
 test("diagnostics and the SharePoint lookup run as the signed-in account", async () => {
   const status = body(await call("GET", "/api/instances/work-business/status"));
   assert.equal(status.ok, true);

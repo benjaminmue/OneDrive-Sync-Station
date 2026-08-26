@@ -165,6 +165,15 @@ export const en = {
   "tools.maintenance": "Maintenance",
   "tools.autoStart": "Start automatically after sign-in and when the container starts",
   "tools.autoStartSaved": "Auto-start updated.",
+  "tools.interval": "Check for remote changes every",
+  "tools.intervalUnit": "minutes",
+  "tools.intervalHint":
+    "How often this account asks Microsoft for changes. Local edits are picked up " +
+    "immediately regardless. Five minutes is the lowest the sync client accepts. " +
+    "Saving restarts this account.",
+  "tools.intervalSave": "Save interval",
+  "tools.intervalSaved": "Interval set to {minutes} minutes.",
+  "tools.intervalInvalid": "Enter a whole number of minutes, at least 5 and at most 1440.",
   "tools.resync": "Resync now",
   "tools.resyncHint":
     "Restarts the client with --resync: the account state is re-read from " +
@@ -1041,6 +1050,64 @@ async function openFoldersPanel(card, id) {
  * @param {object} card Card handle.
  * @param {string} id Instance id.
  */
+/** Bounds of the sync interval, in minutes, matching what the API accepts. */
+const INTERVAL_MIN_MINUTES = 5;
+const INTERVAL_MAX_MINUTES = 1440;
+
+/**
+ * Build the per-account sync interval control.
+ *
+ * The API stores seconds, because that is what the sync client's config
+ * expects, but minutes are what an operator thinks in, so the conversion
+ * happens here rather than in the user's head.
+ *
+ * @param {string} id Instance id.
+ * @param {object|undefined} instance Instance as last seen from the API.
+ * @returns {HTMLElement} The control, ready to append.
+ */
+function buildIntervalControl(id, instance) {
+  const wrap = el("div", { className: "interval" });
+  const inputId = `interval-${id}`;
+  const seconds = Number(instance?.options?.monitorInterval) || 300;
+
+  const input = el("input", {
+    attrs: {
+      type: "number",
+      id: inputId,
+      min: String(INTERVAL_MIN_MINUTES),
+      max: String(INTERVAL_MAX_MINUTES),
+      step: "1",
+      inputmode: "numeric",
+    },
+  });
+  input.value = String(Math.round(seconds / 60));
+
+  const save = actionButton(t("tools.intervalSave"), "", async () => {
+    const minutes = Number(input.value);
+    // Checked here as well as server side, so a typo gets an immediate answer
+    // instead of a round trip that ends in a generic validation error.
+    if (!Number.isInteger(minutes) || minutes < INTERVAL_MIN_MINUTES || minutes > INTERVAL_MAX_MINUTES) {
+      toast("err", t("tools.intervalInvalid"));
+      return;
+    }
+    await api(`/api/instances/${id}`, {
+      method: "PATCH",
+      body: { options: { monitorInterval: minutes * 60 } },
+    });
+    // A running account is restarted by the API so the client picks the new
+    // value up; without that the UI would show a setting that is not in effect.
+    toast("ok", t("tools.intervalSaved", { minutes }));
+    scheduleRefresh();
+  });
+
+  wrap.append(
+    el("label", { text: t("tools.interval"), attrs: { for: inputId } }),
+    el("div", { className: "form-actions" }, input, el("span", { text: t("tools.intervalUnit") }), save),
+    el("p", { text: t("tools.intervalHint"), className: "hint" })
+  );
+  return wrap;
+}
+
 function openToolsPanel(card, id) {
   const instance = model.get(id);
   const panel = el("div", { className: "panel" });
@@ -1122,6 +1189,8 @@ function openToolsPanel(card, id) {
       el("span", { text: t("tools.autoStart") })
     )
   );
+  panel.append(buildIntervalControl(id, instance));
+
   const resync = actionButton(t("tools.resync"), "", async () => {
     await api(`/api/instances/${id}/restart`, { method: "POST", body: { resync: true } });
     scheduleRefresh();

@@ -595,3 +595,10 @@ code { font-family: var(--mono); font-size: 12px; }
   .acc-head { flex-direction: column; align-items: flex-start; gap: 6px; }
   .section-head button { margin-left: 0; }
 }
+
+/* Per-account sync interval: a narrow number field so the unit stays next to
+   the value instead of being pushed to the far side of the panel. */
+.interval { margin-top: 4px; }
+.interval input[type="number"] { width: 6.5rem; }
+.interval .form-actions { margin-top: 4px; }
+.interval span { color: var(--text-muted); font-size: 13px; }
