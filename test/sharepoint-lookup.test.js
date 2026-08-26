@@ -41,6 +41,7 @@ test("a lookup succeeds while the account is refusing to run", async () => {
   const first = await env.onedrive.getSharePointDriveId(instance, "Marketing");
   assert.equal(first.ok, true, "no resync is outstanding yet");
   assert.equal(first.isolated, false, "so no isolation was needed");
+  assert.equal(first.attempt, "direct");
   assert.equal(first.libraries.length, 2);
 
   // Put the account into the state the real client lands in after a
@@ -50,6 +51,7 @@ test("a lookup succeeds while the account is refusing to run", async () => {
   const second = await env.onedrive.getSharePointDriveId(instance, "Marketing");
   assert.equal(second.ok, true, "the lookup still answers");
   assert.equal(second.isolated, true, "and says it had to step aside to do it");
+  assert.equal(second.attempt, "isolated");
   assert.deepEqual(
     second.libraries.map((entry) => entry.driveId),
     ["b!FAKEDRIVEID123", "b!FAKEDRIVEID456"]
@@ -80,6 +82,8 @@ test("without a token there is nothing to try, and the refusal stands", async ()
   const res = await env.onedrive.getSharePointDriveId(fresh, "Marketing");
   assert.equal(res.ok, false);
   assert.equal(res.isolated, false);
+  // Named, so the interface can say what to do instead of showing raw output.
+  assert.equal(res.attempt, "no-token");
   assert.match(res.text, /resync is required/);
 });
 

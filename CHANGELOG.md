@@ -8,6 +8,15 @@ Every published image carries a version. The header of the web UI shows it
 together with the commit the image was built from, so it is always possible to
 tell which build is running.
 
+## [0.2.4] - 2026-08-27
+
+### Added
+
+- A failed drive id lookup says which of its two runs failed and what to do
+  about it, instead of leaving the client's raw output to be interpreted. The
+  lookup runs directly first and repeats itself in a separate directory when the
+  account owes a resync, and those two failures need different answers.
+
 ## [0.2.3] - 2026-08-27
 
 ### Added

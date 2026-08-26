@@ -359,6 +359,14 @@ export const en = {
   "lookup.source": "Signed-in account",
   "lookup.site": "Site name or library URL",
   "lookup.usedSite": "Searched for the site {site}.",
+  "lookup.attemptNoToken":
+    "The account has no stored sign-in, so the lookup could not be repeated in a "
+    + "separate directory. Sign the account in again.",
+  "lookup.attemptStillRefused":
+    "The client demanded a resync even in a directory of its own, which it should "
+    + "have no reason to. Start this account once and let it finish a run, then try "
+    + "the lookup again.",
+  "lookup.attemptIsolated": "The account owed a resync, so the lookup ran in a directory of its own.",
   "lookup.sitePlaceholder": "Marketing",
   "lookup.run": "Look up",
   "lookup.none": "No signed-in account yet, sign in with a business account first.",
@@ -2219,7 +2227,13 @@ async function runSharePointLookup() {
         results.append(use);
       }
     } else {
-      setMsg(msg, "info", t("lookup.raw") + usedSite);
+      // Which run produced this output decides what the user can do about it,
+      // and the client's own wording says nothing about that.
+      const explain = {
+        "no-token": t("lookup.attemptNoToken"),
+        "isolated-still-refused": t("lookup.attemptStillRefused"),
+      }[res.attempt];
+      setMsg(msg, explain ? "err" : "info", (explain || t("lookup.raw")) + usedSite);
       raw.textContent = res.text || t("tools.noOutput");
       raw.hidden = false;
     }

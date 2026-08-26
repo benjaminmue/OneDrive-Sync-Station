@@ -253,7 +253,9 @@ export function siteNameFrom(value) {
  */
 export async function getSharePointDriveId(instance, siteName) {
   const site = siteNameFrom(siteName);
-  let isolated = false;
+  // Which route the lookup took. Reported so a failure can be read without
+  // guessing from the client's output which of the two runs produced it.
+  let attempt = "direct";
   let res = await run([...baseArgs(instance), "--get-sharepoint-drive-id", site], {
     timeout: REMOTE_TIMEOUT_MS,
   });
@@ -262,11 +264,19 @@ export async function getSharePointDriveId(instance, siteName) {
     const fallback = await lookupInScratchDir(instance, site);
     if (fallback) {
       res = fallback;
-      isolated = true;
+      attempt = RESYNC_DEMANDED.test(fallback.text) ? "isolated-still-refused" : "isolated";
+    } else {
+      attempt = "no-token";
     }
   }
 
-  return { ...res, site, isolated, libraries: res.ok ? parseSharePointDriveIds(res.text) : [] };
+  return {
+    ...res,
+    site,
+    attempt,
+    isolated: attempt.startsWith("isolated"),
+    libraries: res.ok ? parseSharePointDriveIds(res.text) : [],
+  };
 }
 
 /**
