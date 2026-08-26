@@ -151,6 +151,15 @@ if (has("--get-sharepoint-drive-id")) {
 }
 
 if (has("--sync") && has("--dry-run")) {
+  // The real client names every directory it would create, and that output is
+  // the only place the folder listing comes from: its dry-run database is not
+  // left behind. Mirroring the wording is what makes the discovery path
+  // testable at all.
+  process.stdout.write("DRY-RUN Configured. Output below shows what would have occurred.\n");
+  for (const dir of ["./Scans", "./Bilder", "./Bilder/Paps"]) {
+    process.stdout.write(`Attempting to create local directory: ${dir}\n`);
+    process.stdout.write(`DRY-RUN: Not creating local directory: ${dir}\n`);
+  }
   process.stdout.write("DRY-RUN: would download 3 files\n");
   process.exit(0);
 }

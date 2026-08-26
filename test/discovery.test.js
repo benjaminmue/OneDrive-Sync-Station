@@ -90,3 +90,34 @@ test("the account list says a discovery is in progress", async () => {
   assert.equal(typeof account.discovering, "boolean");
   assert.equal(account.setupComplete, false);
 });
+
+test("the folders seen during the run are recorded for the selection", async () => {
+  const { parseFolderLines } = await import("../src/discovery.js");
+
+  // Exactly the lines a dry run prints, including the DRY-RUN echo that must
+  // not produce a duplicate entry and the download lines that are not folders.
+  const paths = parseFolderLines(
+    [
+      "Attempting to create local directory: ./Backups",
+      "DRY-RUN: Not creating local directory: ./Backups",
+      "Attempting to create local directory: ./Apps/Microsoft Edge",
+      "Downloading file: Scans/report.pdf ... done",
+    ].join("\n")
+  );
+  assert.deepEqual(paths, ["Backups", "Apps/Microsoft Edge"]);
+});
+
+test("a finished run leaves the folder list behind", async () => {
+  const { readFileSync, existsSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  const file = join(env.root, "config", "instances", "discover-me", "discovered-folders.json");
+
+  // The client keeps its dry-run state in a database it does not leave behind,
+  // so without this file the run would have nothing to show for itself.
+  const written = await waitFor(() => existsSync(file), 15_000);
+  assert.ok(written, "the run recorded what it found");
+
+  const data = JSON.parse(readFileSync(file, "utf8"));
+  assert.ok(Array.isArray(data.folders));
+  assert.ok(data.folders.length > 0);
+});

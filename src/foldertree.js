@@ -18,7 +18,7 @@
 // columns are reported as "not available yet" rather than thrown at the user,
 // and the UI keeps the plain rule editor as the way that always works.
 
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { instanceConfDir, instanceDataDir } from "./config.js";
@@ -155,6 +155,79 @@ function countNodes(nodes) {
   return nodes.reduce((total, node) => total + 1 + countNodes(node.children), 0);
 }
 
+/**
+ * Build a tree from flat paths such as "Bilder/Paps".
+ *
+ * Intermediate folders are created as needed: the client names a nested folder
+ * even when it never mentions its parent on a line of its own.
+ *
+ * @param {string[]} paths Folder paths relative to the account root.
+ * @returns {FolderNode[]} Root level folders, sorted by name.
+ */
+export function treeFromPaths(paths) {
+  const roots = [];
+  const byPath = new Map();
+
+  for (const raw of [...paths].sort()) {
+    const parts = raw.split("/").filter(Boolean);
+    let prefix = "";
+    let siblings = roots;
+    for (const name of parts) {
+      const path = `${prefix}/${name}`;
+      let node = byPath.get(path);
+      if (!node) {
+        node = { name, path, children: [] };
+        byPath.set(path, node);
+        siblings.push(node);
+      }
+      siblings = node.children;
+      prefix = path;
+    }
+  }
+
+  /**
+   * Sort every level by name.
+   * @param {FolderNode[]} nodes Nodes to sort.
+   * @returns {FolderNode[]} The same nodes, sorted.
+   */
+  const sort = (nodes) => {
+    nodes.sort((a, b) => a.name.localeCompare(b.name));
+    nodes.forEach((node) => sort(node.children));
+    return nodes;
+  };
+  return sort(roots);
+}
+
+/**
+ * Read the folders a discovery run recorded.
+ *
+ * The run writes them out because they exist nowhere else afterwards: the
+ * client keeps its dry-run state in a database it does not leave behind, so the
+ * only record of what it found is the output it printed while walking the
+ * account.
+ *
+ * @param {object} instance Instance record.
+ * @returns {{available: true, source: string, folders: FolderNode[], truncated: boolean}|null} The tree, or null when there was no run.
+ */
+function readDiscovered(instance) {
+  const file = join(instanceConfDir(instance.id), "discovered-folders.json");
+  if (!existsSync(file)) return null;
+  try {
+    const data = JSON.parse(readFileSync(file, "utf8"));
+    if (!Array.isArray(data?.folders) || !data.folders.length) return null;
+    return {
+      available: true,
+      source: "discovery",
+      folders: treeFromPaths(data.folders.slice(0, MAX_FOLDERS)),
+      truncated: data.folders.length > MAX_FOLDERS,
+    };
+  } catch {
+    // A truncated or hand-edited file is not worth failing over; the other
+    // sources still apply.
+    return null;
+  }
+}
+
 /** How deep the local fallback descends. Deeper folders are still selectable by hand. */
 const LOCAL_MAX_DEPTH = 6;
 
@@ -244,6 +317,8 @@ export function readFolderTree(instance) {
     if (fromSync) return fromSync;
     const fromDryRun = treeFrom(dryRunDatabasePath(instance), "discovery");
     if (fromDryRun) return fromDryRun;
+    const fromDiscovery = readDiscovered(instance);
+    if (fromDiscovery) return fromDiscovery;
     return readLocalTree(instance);
   } catch (err) {
     // A locked database is transient, anything else means the schema moved

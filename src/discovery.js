@@ -13,9 +13,43 @@
 
 import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
+import { join } from "node:path";
 import { baseArgs, clientCommand } from "./onedrive.js";
+import { instanceConfDir } from "./config.js";
+import { writeFileAtomic } from "./storage.js";
 import { appendLog } from "./supervisor.js";
 import { log } from "./logger.js";
+
+/** Where a completed run leaves the folders it found. */
+export const DISCOVERED_FILE = "discovered-folders.json";
+
+/**
+ * Folder paths the client mentions while walking the account.
+ *
+ * A dry run names every directory it would create, with its full path. That is
+ * the only reliable source for this listing: the client keeps its dry-run state
+ * in a database it does not leave behind, so there is nothing to read once the
+ * run has finished.
+ */
+const FOLDER_LINE = new RegExp(
+  "Attempting to create local directory:\\s*\\.?/?(.+?)\\s*$",
+  "gm"
+);
+
+/**
+ * Extract folder paths from a chunk of client output.
+ * @param {string} chunk Raw client output.
+ * @returns {string[]} Folder paths relative to the account root.
+ */
+export function parseFolderLines(chunk) {
+  const found = [];
+  for (const match of String(chunk).matchAll(FOLDER_LINE)) {
+    const path = match[1].trim();
+    // "." is the account root itself, not something to offer for selection.
+    if (path && path !== "." && path !== "./") found.push(path.replace(new RegExp("^\\./"), ""));
+  }
+  return found;
+}
 
 /** Emits `discovery` events so the API can tell the browser when a run ends. */
 export const events = new EventEmitter();
@@ -76,14 +110,39 @@ export function start(instance) {
 
   child.stdout.setEncoding("utf8");
   child.stderr.setEncoding("utf8");
-  child.stdout.on("data", (chunk) => appendLog(instance.id, chunk));
-  child.stderr.on("data", (chunk) => appendLog(instance.id, chunk));
+  // Collected as the run goes: the folders are only ever visible in this
+  // output, so they have to be picked up while it streams past.
+  const folders = new Set();
+  const collect = (chunk) => {
+    appendLog(instance.id, chunk);
+    for (const path of parseFolderLines(chunk)) folders.add(path);
+  };
+  child.stdout.on("data", collect);
+  child.stderr.on("data", collect);
 
   const finish = (ok) => {
     const run = running.get(instance.id);
     if (!run || run.child !== child) return;
     clearTimeout(run.timeout);
     running.delete(instance.id);
+
+    // Written even on a partial run: half a listing is still better than none,
+    // and the user can start the discovery again.
+    if (folders.size) {
+      try {
+        writeFileAtomic(
+          join(instanceConfDir(instance.id), DISCOVERED_FILE),
+          JSON.stringify({ at: new Date().toISOString(), folders: [...folders] }, null, 2),
+          { mode: 0o600 }
+        );
+      } catch (err) {
+        log.warn("could not store the discovered folders", {
+          instance: instance.id,
+          err: err.message,
+        });
+      }
+    }
+
     appendLog(
       instance.id,
       ok

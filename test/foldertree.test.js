@@ -147,3 +147,38 @@ test("a damaged cache falls back too, rather than showing nothing", () => {
   assert.equal(res.source, "local-files");
   assert.deepEqual(res.folders.map((node) => node.name), ["Bilder"]);
 });
+
+test("a discovery run's folder paths become a tree", () => {
+  // The dry run names nested folders without ever mentioning their parents on a
+  // line of their own, so the intermediate levels have to be inferred.
+  const tree = foldertree.treeFromPaths([
+    "Backups",
+    "Apps/Microsoft Edge/Edge Workspaces",
+    "Bilder/Paps",
+    "Bilder/Screenshots",
+  ]);
+
+  assert.deepEqual(tree.map((node) => node.name), ["Apps", "Backups", "Bilder"]);
+  const apps = tree.find((node) => node.name === "Apps");
+  assert.equal(apps.children[0].name, "Microsoft Edge");
+  assert.equal(apps.children[0].children[0].path, "/Apps/Microsoft Edge/Edge Workspaces");
+  assert.deepEqual(
+    tree.find((node) => node.name === "Bilder").children.map((n) => n.name),
+    ["Paps", "Screenshots"]
+  );
+});
+
+test("the folders a discovery recorded are offered for selection", () => {
+  const other = env.instances.createInstance({ name: "After Discovery", type: "business" });
+  writeFileSync(
+    join(env.root, "config", "instances", other.id, "discovered-folders.json"),
+    JSON.stringify({ at: "2026-08-26T19:08:56Z", folders: ["Scans", "Bilder/Paps"] })
+  );
+
+  // Nothing has been synced, and the client leaves no dry-run database behind,
+  // so this file is the only record that these folders exist.
+  const res = foldertree.readFolderTree(other);
+  assert.equal(res.available, true);
+  assert.equal(res.source, "discovery");
+  assert.deepEqual(res.folders.map((node) => node.name), ["Bilder", "Scans"]);
+});
