@@ -8,6 +8,15 @@ Every published image carries a version. The header of the web UI shows it
 together with the commit the image was built from, so it is always possible to
 tell which build is running.
 
+## [0.4.1] - 2026-08-27
+
+### Changed
+
+- README brought in line with what the project actually does: all three account
+  types are now verified against real accounts, the AI assistance behind the
+  code is disclosed up front, and a `Known gaps` section names what is missing
+  rather than leaving it to be discovered.
+
 ## [0.4.0] - 2026-08-27
 
 ### Added

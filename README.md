@@ -12,9 +12,16 @@
 
 ---
 
-> **Status: early.** A personal OneDrive account has been synced end to end with
-> this container on real hardware. Business accounts and SharePoint libraries use
-> the same code path but have not been exercised against live accounts yet. Do
+> 🤖 **Built with AI, disclosed openly.** This project is developed with heavy
+> assistance from AI (Anthropic's Claude, via Claude Code): code, tests, and
+> documentation. This is stated up front, not hidden. It's used for a personal
+> homelab; review the code yourself before trusting it with your data, and treat
+> it accordingly. Issues and PRs are welcome.
+
+> **Status: early.** All three account types have been synced end to end on real
+> hardware: a personal account, a business account and a SharePoint document
+> library, each through sign-in, folder selection, download, upload and deletion
+> in both directions. It is still young software with one pair of eyes on it. Do
 > not point it at data you have no other copy of.
 
 ## What it does
@@ -28,9 +35,13 @@
   already signed in.
 - **Sign-in from the browser.** No terminal, no `docker exec`. The UI shows the
   Microsoft sign-in link and takes the redirect URL back.
-- **Selective sync.** Per account, an editor for the client's `sync_list` rules
-  with a dry-run preview. Saving triggers the resync the client requires after
-  every change.
+- **Selective sync.** Per account, a folder list to tick, backed by an editor
+  for the client's `sync_list` rules and a dry-run preview. Saving triggers the
+  resync the client requires after every change.
+- **Nothing downloads behind your back.** A new account does not start syncing
+  on its own. It reads its folder list first, in a run that downloads nothing,
+  so the choice comes before the traffic. Folders that exist only on this server
+  are marked as such, because those are the ones with no copy anywhere else.
 - **Config and data kept apart.** `/config` holds settings and sign-ins,
   `/data` holds nothing but synced files, one subfolder per account.
 - **Password protected.** The UI is gated behind a password of its own,
@@ -107,9 +118,10 @@ Nothing else is needed for Personal, Business or SharePoint. In particular:
 
 ### SharePoint libraries
 
-Sign in with a business account first, then use **SharePoint lookup** with the
-site name or URL. It returns the drive IDs of that site's document libraries.
-Create an account of type *SharePoint library* with the ID you want.
+Sign in with a business account first, then use **SharePoint lookup**. It takes
+a site name or the address of the library as it appears in the browser, and
+returns the drive IDs of that site's document libraries. Create an account of
+type *SharePoint library* with the ID you want.
 
 ### Selecting folders
 
@@ -129,8 +141,11 @@ An empty list syncs everything. Rules without a leading slash match anywhere in
 the tree and are the expensive kind, because the client has to walk every folder
 online and locally to find them.
 
-Above the editor is a list of the account's folders to tick, read from what the
-sync client already knows, so the paths do not have to be typed by hand.
+Above the editor is a list of the account's folders to tick, so the paths do not
+have to be typed by hand. It is merged from every source that knows anything:
+the client's own cache, the last discovery run, and what is on disk. None of
+them sees the whole account by itself, which is why **Reload list** can surface
+folders that were not there a minute ago.
 
 Saving restarts the account with `--resync`, which the client requires after
 every change to the selection. Note what that means for folders you remove:
@@ -218,7 +233,24 @@ Microsoft account or a container.
 | `src/authflow.js` | File based Microsoft sign-in handshake |
 | `src/onedrive.js` | Client command wrapper and output parsing |
 | `src/synclist.js` | Folder selection file |
+| `src/discovery.js` | Dry runs that list an account's folders without downloading |
+| `src/foldertree.js` | Folder list, merged from every source that knows one |
 | `src/validate.js` | All input validation |
+
+## Known gaps
+
+Honest list of what is missing or rough, rather than finding out the hard way:
+
+- **The folder list can be incomplete while an account is running.** The client
+  holds a lock on its database, so the list falls back to weaker sources and may
+  show fewer folders than exist. Stopping the account and reloading the list
+  gives the full picture.
+- **No log rotation.** The client's output is held in memory per account and
+  capped by line count, but nothing is written to disk in a rotated form yet.
+- **Not in Community Applications yet.** The template and icon are in this
+  repository under `unraid/`; the entry in the CA feed is still to come.
+- **`:latest` does not exist yet.** Use `:beta` until the first version tag.
+- **One pair of eyes.** No independent review has happened yet.
 
 ## Credits
 
