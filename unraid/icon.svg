@@ -1,11 +1,16 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
   <!-- Sibling of the Obsidian Sync Station mark: same dark rounded tile, same
-       flat faceted treatment, solid fills for reliable rasterisation. -->
+       flat treatment, in the OneDrive blues.
+
+       The geometry is shared with tools/make-icon.mjs, which renders the PNG
+       used by Community Applications. Change one, change the other. -->
   <rect width="256" height="256" rx="52" fill="#10233a"/>
-  <!-- Cloud, built from four facets in the OneDrive blues, light to dark. -->
-  <path d="M96 96a44 44 0 0 1 82-14l-30 34-52 12z" fill="#28a8ea"/>
-  <path d="M178 82a38 38 0 0 1 34 38l-64 14z" fill="#1490df"/>
-  <path d="M62 122a38 38 0 0 1 34-26l52 34-40 34z" fill="#0f78d4"/>
-  <path d="M62 122h150a37 37 0 0 1-32 52H70a34 34 0 0 1-8-52z" fill="#0364b8"/>
-  <path d="M96 96l52 34H62a38 38 0 0 1 34-34z" fill="#0f78d4"/>
+  <!-- Base: ends inside the lobes, so they draw the silhouette. -->
+  <rect x="62" y="133" width="140" height="46" rx="23" fill="#0364b8"/>
+  <circle cx="100" cy="130" r="33" fill="#0f78d4"/>
+  <circle cx="151" cy="113" r="45" fill="#28a8ea"/>
+  <!-- Highlight along the upper left of the big lobe, so the two lobes stay
+       distinguishable at sidebar size. -->
+  <path d="M110.5 113A40.5 40.5 0 0 1 151 72.5" fill="none" stroke="#5cc0f2"
+        stroke-width="9" stroke-linecap="round"/>
 </svg>
