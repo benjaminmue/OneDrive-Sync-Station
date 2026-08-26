@@ -121,3 +121,16 @@ test("a finished run leaves the folder list behind", async () => {
   assert.ok(Array.isArray(data.folders));
   assert.ok(data.folders.length > 0);
 });
+
+test("the account reports whether a folder list exists yet", async () => {
+  const listed = body(await call("GET", "/api/instances"));
+  const account = listed.find((item) => item.id === "discover-me");
+
+  // Drives which step the card offers: looking at the folders, or picking from
+  // the list that looking produced. Without it the card would keep offering the
+  // step the user has already done.
+  assert.equal(typeof account.foldersKnown, "boolean");
+
+  const noRun = listed.find((item) => item.id === "no-login");
+  assert.equal(noRun.foldersKnown, false);
+});

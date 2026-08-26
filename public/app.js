@@ -203,9 +203,9 @@ export const en = {
     "Read from what the sync client already knows about this account. Tick a " +
     "folder to add it to the rules below, untick it to remove its rule.",
   "picker.notSynced":
-    "No folder list yet. It appears once this account has run its first sync, " +
-    "because the list is read from what the client learned back then. Until " +
-    "then, write the rules by hand.",
+    "No folder list yet. Use \"Look at the folders first\" on the card above: " +
+    "that asks Microsoft what is in this account without downloading anything, " +
+    "and fills this list. You can also write the rules by hand.",
   "picker.busy":
     "The client is writing to its database right now, so the list cannot be " +
     "read. Try again in a moment.",
@@ -225,12 +225,15 @@ export const en = {
     "narrow it down, and on a large account that is a lot of data, so the " +
     "decision comes first.",
   "setup.discover": "Look at the folders first",
+  "setup.discoverThen":
+    "Folder list ready. Open Folders, tick what you want, save, then press Start.",
   "setup.discoverHint":
-    "Asks Microsoft what is in this account and downloads nothing. Takes a " +
-    "moment on a large account; the log shows the progress.",
+    "Look at the folders first: asks Microsoft what is in this account and " +
+    "downloads nothing. Afterwards you pick what to sync. Takes a moment on a " +
+    "large account; the log shows the progress.",
   "setup.discovering": "Looking at the account, nothing is being downloaded...",
   "setup.syncAll": "Sync everything",
-  "setup.syncAllHint": "Start right away and take the whole account.",
+  "setup.syncAllHint": "Sync everything: start right away and take the whole account.",
   "setup.chooseFolders": "Choose folders",
   "setup.ready":
     "The folder list is ready. Open Folders, tick what you want, save, and then " +
@@ -1398,7 +1401,11 @@ function appendLogLine(payload) {
  * @param {object} card Card handle.
  * @param {string} id Instance id.
  */
-async function openFoldersPanel(card, id) {
+async function openFoldersPanel(card, id, opts = {}) {
+  // Reopened by the discovery event rather than by a click: clearing the marker
+  // first stops the toggle from treating this as "close it again", so the
+  // freshly available list simply appears.
+  if (opts.reopen) card.open = null;
   const name = model.get(id)?.name || id;
   const panel = el("div", { className: "panel" });
   panel.append(el("h4", { text: t("folders.title") }));
@@ -1487,6 +1494,19 @@ function buildSetupChoice(card, instance) {
 
   if (instance.discovering) {
     actions.append(el("p", { text: t("setup.discovering"), className: "hint" }));
+  } else if (instance.foldersKnown) {
+    // The list exists now, so the next step is picking from it rather than
+    // looking again. Showing the same three options as before would leave the
+    // user guessing what, if anything, changed.
+    const choose = actionButton(t("setup.chooseFolders"), "primary", () =>
+      openFoldersPanel(card, instance.id, { reopen: true })
+    );
+    const takeAll = actionButton(t("setup.syncAll"), "", async () => {
+      await api(`/api/instances/${instance.id}/start`, { method: "POST" });
+      scheduleRefresh();
+    });
+    actions.append(choose, takeAll);
+    box.append(el("p", { text: t("setup.discoverThen"), className: "hint" }));
   } else {
     const discover = actionButton(t("setup.discover"), "primary", async () => {
       await api(`/api/instances/${instance.id}/discover`, { method: "POST" });
@@ -1499,19 +1519,20 @@ function buildSetupChoice(card, instance) {
       await api(`/api/instances/${instance.id}/start`, { method: "POST" });
       scheduleRefresh();
     });
-    const choose = actionButton(t("setup.chooseFolders"), "", () =>
-      openFoldersPanel(card, instance.id)
-    );
-    actions.append(discover, choose, syncAll);
+    // No third "choose folders" button: the selection is not an alternative to
+    // looking first, it is the step after it. Offering it here opened an editor
+    // whose list does not exist yet.
+    actions.append(discover, syncAll);
   }
 
   box.append(actions);
-  box.append(
-    el("p", {
-      text: instance.discovering ? t("setup.discoverHint") : t("setup.syncAllHint"),
-      className: "hint",
-    })
-  );
+  // Each option explained next to itself, rather than one line under both.
+  if (!instance.discovering) {
+    box.append(
+      el("p", { text: t("setup.discoverHint"), className: "hint" }),
+      el("p", { text: t("setup.syncAllHint"), className: "hint" })
+    );
+  }
   return box;
 }
 
@@ -2124,6 +2145,16 @@ function startEventStream() {
   eventSource.addEventListener("error", () => setLiveState(false)); // EventSource reconnects on its own
   eventSource.addEventListener("log", (event) => appendLogLine(JSON.parse(event.data)));
   eventSource.addEventListener("state", () => scheduleRefresh());
+
+  // A finished discovery is what fills the folder list. Without reacting to it,
+  // the panel keeps saying "no list yet" until someone thinks to press reload.
+  eventSource.addEventListener("discovery", (event) => {
+    const payload = JSON.parse(event.data);
+    if (payload.running) return;
+    const card = cards.get(payload.id);
+    if (card?.open === "folders") openFoldersPanel(card, payload.id, { reopen: true });
+    scheduleRefresh();
+  });
 }
 
 /** Tear down the event stream and hide the live indicator. */

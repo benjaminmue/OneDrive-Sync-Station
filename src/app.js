@@ -185,6 +185,8 @@ export async function createApp() {
       ...instances.describeInstance(instance),
       runtime: supervisor.status(instance.id),
       discovering: discovery.isRunning(instance.id),
+      // Lets the card offer the next step rather than repeating the previous one.
+      foldersKnown: foldertree.readFolderTree(instance).available,
     }))
   );
 
@@ -437,6 +439,7 @@ export async function createApp() {
       clearInterval(heartbeat);
       supervisor.events.off("log", onLog);
       supervisor.events.off("state", onState);
+      discovery.events.off("discovery", onDiscovery);
     };
 
     /**
@@ -470,8 +473,13 @@ export async function createApp() {
 
     const onLog = (payload) => send("log", payload);
     const onState = (payload) => send("state", payload);
+    // A discovery run ending is what fills the folder list, so the browser has
+    // to hear about it: otherwise the panel keeps showing "no list yet" until
+    // someone thinks to press reload.
+    const onDiscovery = (payload) => send("discovery", payload);
     supervisor.events.on("log", onLog);
     supervisor.events.on("state", onState);
+    discovery.events.on("discovery", onDiscovery);
 
     // Proxies drop idle connections; a comment line keeps the stream warm
     // without showing up as an event in the browser.
