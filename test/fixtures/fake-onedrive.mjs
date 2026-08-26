@@ -53,9 +53,20 @@ if (has("--auth-files")) {
     process.exit(1);
   }
 
+  // Mirrors the shape of the real client's authorisation URL, including scope
+  // and redirect_uri. It cannot complete a sign-in (the client id is not a real
+  // application), but keeping the structure means anyone driving the stub sees
+  // the same URL the station will hand out in production, rather than a
+  // truncated one that fails with a confusing "missing parameter" error.
+  const scope = encodeURIComponent(
+    "Files.ReadWrite Files.ReadWrite.All Sites.ReadWrite.All offline_access"
+  );
+  const redirect = encodeURIComponent("https://login.microsoftonline.com/common/oauth2/nativeclient");
   writeFileSync(
     urlFile,
-    "https://login.microsoftonline.com/common/oauth2/v2.0/authorize?client_id=fake&response_type=code\n"
+    "https://login.microsoftonline.com/common/oauth2/v2.0/authorize" +
+      "?client_id=00000000-0000-0000-0000-00000000fake" +
+      `&scope=${scope}&response_type=code&prompt=login&redirect_uri=${redirect}\n`
   );
   process.stdout.write("Waiting for authorisation response\n");
 
