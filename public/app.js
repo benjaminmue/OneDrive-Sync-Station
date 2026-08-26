@@ -36,6 +36,9 @@ export const en = {
   "common.cancel": "Cancel",
   "common.close": "Close",
   "common.working": "Working…",
+  "common.copyFailed":
+    "This browser will not let the page copy for you over a plain http " +
+    "connection. Select the text and copy it yourself.",
 
   "setup.title": "Set a web UI password",
   "setup.hint":
@@ -468,6 +471,46 @@ function clearMsg(node) {
 /** @returns {boolean} Whether the user prefers reduced motion. */
 function reducedMotion() {
   return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
+/**
+ * Copy text to the clipboard, with a fallback for plain HTTP.
+ *
+ * navigator.clipboard only exists in a secure context, meaning HTTPS or
+ * localhost. This station is normally reached as http://server:8485 on a LAN,
+ * so on the machines it was built for the modern API is simply absent, and
+ * calling it throws. The deprecated execCommand path still works there.
+ *
+ * @param {string} text Text to place on the clipboard.
+ * @returns {Promise<boolean>} True when the text was copied.
+ */
+async function copyText(text) {
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      // Permission denied or a non-secure context that still exposes the API.
+    }
+  }
+
+  const area = document.createElement("textarea");
+  area.value = text;
+  area.setAttribute("readonly", "");
+  // Off screen but focusable: a hidden element cannot be selected.
+  area.style.position = "fixed";
+  area.style.top = "-1000px";
+  area.style.opacity = "0";
+  document.body.append(area);
+  area.select();
+  let copied = false;
+  try {
+    copied = document.execCommand("copy");
+  } catch {
+    copied = false;
+  }
+  area.remove();
+  return copied;
 }
 
 // --- Toasts -----------------------------------------------------------------
@@ -999,8 +1042,10 @@ async function runDeviceSignIn(card, id, body) {
 
   const code = el("code", { text: userCode, className: "device-code" });
   const copyCode = actionButton(t("signin.deviceCopy"), "", async () => {
-    await navigator.clipboard.writeText(userCode);
-    toast("ok", t("signin.deviceCopied"));
+    // The code is also selectable in the page, so a failure here is an
+    // inconvenience rather than a dead end; say so instead of showing an error.
+    const ok = await copyText(userCode);
+    toast(ok ? "ok" : "info", ok ? t("signin.deviceCopied") : t("common.copyFailed"));
   });
   steps.append(
     el(
@@ -1063,8 +1108,8 @@ async function runRedirectSignIn(card, id, body) {
     attrs: { href: authUrl, target: "_blank", rel: "noopener noreferrer" },
   });
   const copyBtn = actionButton(t("signin.copy"), "", async () => {
-    await navigator.clipboard.writeText(authUrl);
-    toast("ok", t("signin.copied"));
+    const ok = await copyText(authUrl);
+    toast(ok ? "ok" : "info", ok ? t("signin.copied") : t("common.copyFailed"));
   });
   steps.append(
     el(
