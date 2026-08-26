@@ -32,6 +32,7 @@ import * as supervisor from "./supervisor.js";
 import * as onedrive from "./onedrive.js";
 import * as authflow from "./authflow.js";
 import * as synclist from "./synclist.js";
+import * as foldertree from "./foldertree.js";
 import * as ratelimit from "./ratelimit.js";
 import * as validate from "./validate.js";
 import { ValidationError } from "./validate.js";
@@ -228,8 +229,39 @@ export async function createApp() {
     // A running monitor holds the same config directory; letting a second client
     // authorise into it at the same time would race over the token files.
     await supervisor.stop(instance.id);
-    return authflow.begin(instance);
+
+    // The flow is a stored option rather than a request parameter, because the
+    // client reads it from its config file: the two have to agree, and the
+    // config is written when the option changes.
+    const wantDevice = validate.boolean(request.body?.useDeviceAuth);
+    if (wantDevice !== Boolean(instance.options.useDeviceAuth)) {
+      instances.updateInstance(instance.id, { options: { useDeviceAuth: wantDevice } });
+    }
+    const updated = instances.requireInstance(instance.id);
+
+    if (wantDevice) {
+      const prompt = await authflow.beginDeviceAuth(updated);
+      return { mode: "device", ...prompt };
+    }
+    const started = await authflow.begin(updated);
+    return { mode: "redirect", ...started };
   });
+
+  // Polled by the UI while the user is entering the code at Microsoft. The
+  // client does the waiting itself in this flow, so there is nothing to send
+  // back to it, only its outcome to report.
+  app.post("/api/instances/:id/signin/poll", async (request) => {
+    const instance = instanceFromRequest(request);
+    const result = await authflow.pollDeviceAuth(instance);
+    if (!result.done) return { done: false, authenticated: false };
+    const authenticated = instances.isAuthenticated(instance);
+    if (authenticated && instance.autoStart) supervisor.start(instance);
+    return { ...result, authenticated };
+  });
+
+  app.get("/api/instances/:id/signin/state", async (request) =>
+    authflow.attemptState(instanceFromRequest(request))
+  );
 
   app.post("/api/instances/:id/signin/complete", async (request) => {
     const instance = instanceFromRequest(request);
@@ -309,6 +341,12 @@ export async function createApp() {
 
   app.get("/api/instances/:id/synclist", async (request) =>
     synclist.read(instanceFromRequest(request))
+  );
+
+  // The folder listing comes from the client's own item cache, so it needs no
+  // token of its own and stays available while the client is running.
+  app.get("/api/instances/:id/folders", async (request) =>
+    foldertree.readFolderTree(instanceFromRequest(request))
   );
 
   app.put("/api/instances/:id/synclist", async (request) => {

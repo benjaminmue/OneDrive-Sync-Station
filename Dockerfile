@@ -2,7 +2,9 @@
 #
 # Stage 1 builds the OneDrive Client for Linux from source at a pinned tag, so
 # the exact client version shipped here is reproducible and under our control.
-# Stage 2 runs the station on top of Node. Both stages are Debian trixie based:
+# Stage 2 runs the station on top of Node 24, whose built-in node:sqlite is what
+# reads the client item cache for the folder listing. Both stages are Debian
+# trixie based:
 # the client is linked against that distribution's libphobos, libcurl and
 # sqlite, so the runtime has to be the same release for the ABI to match.
 
@@ -45,7 +47,7 @@ RUN git clone --depth 1 --branch "${ONEDRIVE_VERSION}" \
   && make \
   && make install
 
-FROM node:22-trixie-slim
+FROM node:24-trixie-slim
 ARG ONEDRIVE_VERSION
 ENV NODE_ENV=production
 WORKDIR /app

@@ -122,6 +122,54 @@ export const en = {
     "Copy the address straight away. The page redirects itself after a few " +
     "seconds, and the code is gone from the address bar afterwards. If that " +
     "happens, close the tab and start the sign-in again.",
+  "signin.method": "How do you want to sign in?",
+  "signin.start": "Start sign-in",
+  "signin.methodDevice": "Enter a code at Microsoft (recommended)",
+  "signin.methodRedirect": "Copy an address back from the browser",
+  "signin.methodDeviceHint":
+    "You open one Microsoft page, type a short code, and this account signs " +
+    "itself in. Nothing has to be copied back. Some company tenants forbid " +
+    "this method; if it is refused, use the other one.",
+  "signin.methodRedirectHint":
+    "You sign in and then copy the address of the page you land on back into " +
+    "this form. It works everywhere, but the page redirects itself after a few " +
+    "seconds, so you have to be quick. Read the note below before you start.",
+  "signin.warningTitle": "Read this before you start",
+  "signin.warningIntro":
+    "After signing in, Microsoft shows a nearly empty page with this text:",
+  "signin.warningQuote":
+    "This page is not normally shown and could be a sign of a phishing attempt. " +
+    "The URL contains your password. Close this page immediately and do not copy " +
+    "or share the URL with anyone.",
+  "signin.warningExplain":
+    "That message and the redirect that follows both come from Microsoft, not " +
+    "from this station. The address contains no password: it carries a one-time " +
+    "code that only this station can redeem and that expires within minutes. " +
+    "Microsoft shows the warning because attackers do ask people for exactly " +
+    "this address. Pasting it here is the intended use. Give it to nobody who " +
+    "asked you for it, and to no chat or support channel.",
+  "signin.warningSteps": "What to do on that page:",
+  "signin.warningStep1":
+    "Copy the whole address from the address bar immediately. It looks like " +
+    "https://login.microsoftonline.com/common/oauth2/nativeclient?code=M.C5...",
+  "signin.warningStep2":
+    "The page redirects itself to /common/wrongplace after a few seconds. If " +
+    "that happened, the address is gone from the bar: open the browser history " +
+    "(Ctrl+H), find the entry containing code=, and copy its link address.",
+  "signin.warningStep3": "Paste it into the field below and press Connect.",
+  "signin.warningNoFix":
+    "There is no cleaner way at the moment. The redirect happens inside " +
+    "Microsoft's page and cannot be prevented from here, which is why the code " +
+    "method above exists.",
+  "signin.deviceTitle": "Enter this code at Microsoft",
+  "signin.deviceStep1": "Open the Microsoft page:",
+  "signin.deviceStep2": "Enter this code there and confirm the sign-in:",
+  "signin.deviceWaiting": "Waiting for you to confirm the sign-in at Microsoft...",
+  "signin.deviceCopy": "Copy code",
+  "signin.deviceCopied": "Code copied to the clipboard.",
+  "signin.deviceExpired":
+    "The code was not confirmed in time, or Microsoft refused this method. " +
+    "Start again, or switch to the other method.",
   "signin.step3Title": "Paste the address of that page here.",
   "signin.step3Text":
     "Copy the full URL from the browser's address bar. It starts with " +
@@ -138,6 +186,23 @@ export const en = {
   "logs.jump": "Jump to latest",
   "logs.label": "Log of {name}",
 
+  "picker.title": "Your folders",
+  "picker.hint":
+    "Read from what the sync client already knows about this account. Tick a " +
+    "folder to add it to the rules below, untick it to remove its rule.",
+  "picker.notSynced":
+    "No folder list yet. It appears once this account has run its first sync, " +
+    "because the list is read from what the client learned back then. Until " +
+    "then, write the rules by hand.",
+  "picker.busy":
+    "The client is writing to its database right now, so the list cannot be " +
+    "read. Try again in a moment.",
+  "picker.unreadable":
+    "The folder list could not be read. The rules below still work.",
+  "picker.truncated": "Only part of the list is shown, this account has a lot of folders.",
+  "picker.reload": "Reload list",
+  "picker.expand": "Expand",
+  "picker.collapse": "Collapse",
   "folders.title": "Folder selection (sync_list)",
   "folders.rule1": "One rule per line. Lines starting with # are comments.",
   "folders.rule2": "Exclusions start with ! and must come first, they win over inclusions.",
@@ -768,25 +833,180 @@ function syncToggles(card) {
  * @param {object} card Card handle.
  * @param {string} id Instance id.
  */
+/**
+ * Ask which sign-in method to use, then run it.
+ *
+ * Two methods exist because neither is good enough alone. The device code is
+ * far easier (nothing to copy back) but some tenants forbid that flow. The
+ * redirect method works everywhere but ends on a page that warns about phishing
+ * and then redirects itself away before most people manage to copy the address.
+ *
+ * @param {HTMLElement} card Instance card.
+ * @param {string} id Instance id.
+ */
 async function openSignInPanel(card, id) {
   const panel = el("div", { className: "panel" });
   panel.append(el("h4", { text: t("signin.title") }));
-  const placeholder = el("p", { text: t("signin.preparing"), className: "hint" });
-  panel.append(placeholder);
   openPanel(card, "signin", panel);
 
-  let authUrl;
-  try {
-    // begin() stops a running client first (server-side), because two clients
-    // must not touch the same token files at once.
-    ({ authUrl } = await api(`/api/instances/${id}/signin/begin`, { method: "POST" }));
-  } catch (err) {
-    if (card.open === "signin") closePanel(card);
-    toast("err", describeError(err));
+  const body = el("div");
+  panel.append(buildMethodChooser(card, id, body), body);
+}
+
+/**
+ * Build the method chooser and wire it to start the chosen flow.
+ * @param {HTMLElement} card Instance card.
+ * @param {string} id Instance id.
+ * @param {HTMLElement} body Container the chosen flow renders into.
+ * @returns {HTMLElement} The chooser.
+ */
+function buildMethodChooser(card, id, body) {
+  const wrap = el("div", { className: "method-choice" });
+  wrap.append(el("strong", { text: t("signin.method") }));
+
+  const group = el("div", { className: "stack-sm" });
+  /**
+   * Add one method option.
+   * @param {string} value Method identifier.
+   * @param {string} labelKey Label string key.
+   * @param {string} hintKey Explanation string key.
+   * @param {boolean} checked Whether it starts selected.
+   */
+  const option = (value, labelKey, hintKey, checked) => {
+    const input = el("input", {
+      attrs: { type: "radio", name: `method-${id}`, id: `method-${id}-${value}`, value },
+    });
+    input.checked = checked;
+    group.append(
+      el(
+        "label",
+        { className: "check", attrs: { for: `method-${id}-${value}` } },
+        input,
+        el("span", {}, el("span", { text: t(labelKey) }), el("p", { text: t(hintKey), className: "hint" }))
+      )
+    );
+  };
+
+  option("device", "signin.methodDevice", "signin.methodDeviceHint", true);
+  option("redirect", "signin.methodRedirect", "signin.methodRedirectHint", false);
+  wrap.append(group);
+
+  const startButton = el("button", {
+    text: t("signin.start"),
+    className: "primary",
+    attrs: { type: "button" },
+  });
+  startButton.addEventListener("click", async () => {
+    const chosen = wrap.querySelector(`input[name="method-${id}"]:checked`)?.value || "device";
+    startButton.disabled = true;
+    wrap.hidden = true;
+    body.replaceChildren(el("p", { text: t("signin.preparing"), className: "hint" }));
+    try {
+      if (chosen === "device") await runDeviceSignIn(card, id, body);
+      else await runRedirectSignIn(card, id, body);
+    } catch (err) {
+      // Back to the chooser: the other method may well work where this failed.
+      wrap.hidden = false;
+      startButton.disabled = false;
+      body.replaceChildren();
+      toast("err", describeError(err));
+    }
+  });
+
+  wrap.append(el("div", { className: "form-actions" }, startButton));
+  return wrap;
+}
+
+/**
+ * Device code flow: show the code, then poll until the client is done.
+ *
+ * The client polls Microsoft itself in this flow, so the station only watches
+ * for it to finish. Nothing is copied back from the browser.
+ *
+ * @param {HTMLElement} card Instance card.
+ * @param {string} id Instance id.
+ * @param {HTMLElement} body Container to render into.
+ */
+async function runDeviceSignIn(card, id, body) {
+  const started = await api(`/api/instances/${id}/signin/begin`, {
+    method: "POST",
+    body: { useDeviceAuth: true },
+  });
+  if (card.open !== "signin") return; // toggled away while we waited
+
+  const { verificationUrl, userCode } = started;
+  const steps = el("ol", { className: "signin-steps" });
+
+  const openLink = el("a", {
+    text: t("signin.open"),
+    className: "button primary",
+    attrs: { href: verificationUrl, target: "_blank", rel: "noopener noreferrer" },
+  });
+  steps.append(
+    el(
+      "li",
+      {},
+      el("strong", { text: t("signin.deviceStep1") }),
+      el("div", { className: "signin-actions" }, openLink),
+      el("p", { text: verificationUrl, className: "hint" })
+    )
+  );
+
+  const code = el("code", { text: userCode, className: "device-code" });
+  const copyCode = actionButton(t("signin.deviceCopy"), "", async () => {
+    await navigator.clipboard.writeText(userCode);
+    toast("ok", t("signin.deviceCopied"));
+  });
+  steps.append(
+    el(
+      "li",
+      {},
+      el("strong", { text: t("signin.deviceStep2") }),
+      el("div", { className: "signin-actions" }, code, copyCode)
+    )
+  );
+
+  const status = el("p", { text: t("signin.deviceWaiting"), className: "hint", attrs: { "aria-live": "polite" } });
+  const cancel = el("button", { text: t("common.cancel"), attrs: { type: "button" } });
+  cancel.addEventListener("click", () => closePanel(card));
+
+  body.replaceChildren(steps, status, el("div", { className: "form-actions" }, cancel));
+
+  // Poll until the client reports an outcome. Each request waits a moment on
+  // the server, so this is a handful of requests per minute rather than a busy
+  // loop, and it stops as soon as the user closes the panel.
+  while (card.open === "signin") {
+    const res = await api(`/api/instances/${id}/signin/poll`, { method: "POST" });
+    if (!res.done) continue;
+    if (res.authenticated) {
+      const name = model.get(id)?.name || id;
+      card.open = null;
+      card.panels.replaceChildren();
+      toast("ok", t("signin.success", { name }));
+      await refreshInstances();
+      return;
+    }
+    status.className = "msg err";
+    status.textContent = t("signin.deviceExpired");
+    const out = el("pre", { className: "output", attrs: { tabindex: "0" } });
+    out.textContent = res.text || t("tools.noOutput");
+    body.append(out);
     return;
   }
-  if (card.open !== "signin") return; // user toggled away while we waited
-  placeholder.remove();
+}
+
+/**
+ * Redirect flow: open the Microsoft link, paste the resulting address back.
+ * @param {HTMLElement} card Instance card.
+ * @param {string} id Instance id.
+ * @param {HTMLElement} body Container to render into.
+ */
+async function runRedirectSignIn(card, id, body) {
+  const { authUrl } = await api(`/api/instances/${id}/signin/begin`, {
+    method: "POST",
+    body: { useDeviceAuth: false },
+  });
+  if (card.open !== "signin") return;
 
   const steps = el("ol", { className: "signin-steps" });
 
@@ -811,16 +1031,10 @@ async function openSignInPanel(card, id) {
     )
   );
 
-  // Step 2: pre-empt the "did it break?" moment.
-  steps.append(
-    el(
-      "li",
-      {},
-      el("strong", { text: t("signin.step2Title") }),
-      el("p", { text: t("signin.step2Text"), className: "hint" }),
-      el("p", { text: t("signin.step2Hurry"), className: "hint warn-hint" })
-    )
-  );
+  // Step 2: the warning Microsoft shows, quoted and explained. Without this,
+  // people either abort or paste the address of the page they get redirected
+  // to, which no longer carries the code.
+  steps.append(el("li", {}, buildMicrosoftWarning()));
 
   // Step 3: the paste target.
   const input = el("input", {
@@ -836,6 +1050,7 @@ async function openSignInPanel(card, id) {
 
   const connect = el("button", { text: t("signin.connect"), className: "primary", attrs: { type: "button" } });
   const cancel = el("button", { text: t("common.cancel"), attrs: { type: "button" } });
+
   connect.addEventListener("click", async () => {
     clearMsg(errMsg);
     errOut.hidden = true;
@@ -883,8 +1098,35 @@ async function openSignInPanel(card, id) {
     )
   );
 
-  panel.append(steps);
+  body.replaceChildren(steps);
   input.focus();
+}
+
+/**
+ * The quoted Microsoft warning and what to do about it.
+ *
+ * Quoting it verbatim is the point: the user is about to read those exact words
+ * on a Microsoft page and needs to recognise them as expected rather than as a
+ * sign that something went wrong.
+ *
+ * @returns {HTMLElement} The warning block.
+ */
+function buildMicrosoftWarning() {
+  const box = el("div", { className: "ms-warning" });
+  box.append(
+    el("strong", { text: t("signin.warningTitle") }),
+    el("p", { text: t("signin.warningIntro"), className: "hint" }),
+    el("blockquote", { text: t("signin.warningQuote") }),
+    el("p", { text: t("signin.warningExplain"), className: "hint" }),
+    el("strong", { text: t("signin.warningSteps") })
+  );
+
+  const list = el("ol", { className: "warning-steps" });
+  for (const key of ["signin.warningStep1", "signin.warningStep2", "signin.warningStep3"]) {
+    list.append(el("li", { text: t(key) }));
+  }
+  box.append(list, el("p", { text: t("signin.warningNoFix"), className: "hint" }));
+  return box;
 }
 
 // --- Log panel --------------------------------------------------------------
@@ -1016,6 +1258,11 @@ async function openFoldersPanel(card, id) {
   const textarea = el("textarea", {
     attrs: { rows: "8", spellcheck: "false", "aria-label": t("folders.editorLabel", { name }) },
   });
+
+  // The picker writes into this same textarea rather than keeping a selection
+  // of its own: the rules stay the single source of truth, so a hand-written
+  // rule is never silently overwritten by a checkbox.
+  panel.append(buildFolderPicker(id, textarea));
   panel.append(textarea);
   panel.append(el("p", { text: t("folders.warn"), className: "warn" }));
 
@@ -1047,6 +1294,130 @@ async function openFoldersPanel(card, id) {
   if (card.open !== "folders") return;
   textarea.value = current.text;
   textarea.focus();
+}
+
+// --- Folder picker ----------------------------------------------------------
+
+/**
+ * Read the rule lines out of the editor.
+ * @param {HTMLTextAreaElement} textarea The rules editor.
+ * @returns {string[]} Trimmed, non-empty lines.
+ */
+function ruleLines(textarea) {
+  return textarea.value.split("\n").map((line) => line.trim()).filter(Boolean);
+}
+
+/**
+ * Whether a folder path is currently selected by a plain inclusion rule.
+ *
+ * Only the exact rule this picker writes counts as "ticked". Anything more
+ * elaborate (a wildcard, an exclusion, a rule without a leading slash) is left
+ * to the editor, because guessing what a hand-written pattern covers would
+ * eventually guess wrong and silently drop folders from the selection.
+ *
+ * @param {HTMLTextAreaElement} textarea The rules editor.
+ * @param {string} path Folder path such as "/Documents".
+ * @returns {boolean} True when the exact rule is present.
+ */
+function hasFolderRule(textarea, path) {
+  return ruleLines(textarea).includes(`${path}/`);
+}
+
+/**
+ * Add or remove the inclusion rule for one folder.
+ * @param {HTMLTextAreaElement} textarea The rules editor.
+ * @param {string} path Folder path.
+ * @param {boolean} selected Whether the folder should be included.
+ * @returns {void}
+ */
+function setFolderRule(textarea, path, selected) {
+  const rule = `${path}/`;
+  const lines = ruleLines(textarea);
+  const next = selected
+    ? (lines.includes(rule) ? lines : [...lines, rule])
+    : lines.filter((line) => line !== rule);
+  textarea.value = next.join("\n");
+}
+
+/**
+ * Build one level of the folder tree.
+ * @param {Array<object>} nodes Folder nodes at this level.
+ * @param {HTMLTextAreaElement} textarea The rules editor.
+ * @returns {HTMLElement} A list element for this level.
+ */
+function buildFolderLevel(nodes, textarea) {
+  const list = el("ul", { className: "folder-list" });
+  for (const node of nodes) {
+    const item = el("li");
+    const box = el("input", { attrs: { type: "checkbox" } });
+    box.checked = hasFolderRule(textarea, node.path);
+    box.addEventListener("change", () => setFolderRule(textarea, node.path, box.checked));
+
+    const label = el("label", { className: "folder-row" }, box, el("span", { text: node.name }));
+    item.append(label);
+
+    if (node.children.length) {
+      // Nested folders live in a details element, so a deep account does not
+      // arrive as a wall of checkboxes.
+      const sub = el("details");
+      sub.append(el("summary", { text: t("picker.expand") }), buildFolderLevel(node.children, textarea));
+      item.append(sub);
+    }
+    list.append(item);
+  }
+  return list;
+}
+
+/**
+ * Build the folder picker for an account.
+ *
+ * The list can be unavailable for ordinary reasons (no sync yet, client busy),
+ * so every outcome renders an explanation rather than an empty box, and the
+ * rules editor underneath always remains usable.
+ *
+ * @param {string} id Instance id.
+ * @param {HTMLTextAreaElement} textarea The rules editor this picker feeds.
+ * @returns {HTMLElement} The picker element.
+ */
+function buildFolderPicker(id, textarea) {
+  const wrap = el("div", { className: "folder-picker" });
+  const head = el("div", { className: "section-head" });
+  head.append(el("h4", { text: t("picker.title") }));
+  const reload = el("button", { text: t("picker.reload"), className: "slim", attrs: { type: "button" } });
+  head.append(reload);
+  const body = el("div");
+  wrap.append(head, el("p", { text: t("picker.hint"), className: "hint" }), body);
+
+  /** Fetch the tree and render whichever outcome comes back. */
+  const load = async () => {
+    reload.disabled = true;
+    body.replaceChildren(el("p", { text: t("tools.running"), className: "hint" }));
+    try {
+      const res = await api(`/api/instances/${id}/folders`);
+      if (!res.available) {
+        const reasons = {
+          "not-synced-yet": "picker.notSynced",
+          "database-busy": "picker.busy",
+          unreadable: "picker.unreadable",
+        };
+        body.replaceChildren(
+          el("p", { text: t(reasons[res.reason] || "picker.unreadable"), className: "hint" })
+        );
+        return;
+      }
+      const parts = [buildFolderLevel(res.folders, textarea)];
+      if (res.truncated) parts.push(el("p", { text: t("picker.truncated"), className: "hint" }));
+      body.replaceChildren(...parts);
+    } catch (err) {
+      body.replaceChildren(el("p", { text: describeError(err), className: "msg err" }));
+    } finally {
+      reload.disabled = false;
+    }
+  };
+
+  reload.addEventListener("click", load);
+  load();
+  return wrap;
 }
 
 // --- Tools panel ------------------------------------------------------------

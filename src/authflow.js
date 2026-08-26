@@ -69,8 +69,33 @@ const KILL_TIMEOUT_MS = 5_000;
 const POLL_INTERVAL_MS = 250;
 
 /**
+ * Recognise the device code prompt in the client's output.
+ *
+ * With use_device_auth the client prints the verification URL on its own line
+ * and the code in a sentence, then polls Microsoft by itself until the user has
+ * confirmed. Nothing has to be copied back, which is why this flow exists: the
+ * redirect page of the other flow redirects itself away before most people can
+ * copy the address out of it.
+ *
+ * @param {string} text Client output collected so far.
+ * @returns {{verificationUrl: string, userCode: string}|null} The prompt, once both parts are present.
+ */
+export function parseDeviceCodePrompt(text) {
+  const codeMatch = String(text).match(/Enter the following code when prompted:\s*(\S+)/i);
+  if (!codeMatch) return null;
+  // The client prints the URL Microsoft supplied, on a line of its own.
+  const urlMatch = String(text).match(/https:\/\/\S*(?:devicelogin|deviceauth)\S*/i);
+  return {
+    verificationUrl: urlMatch ? urlMatch[0].replace(/[.,]$/, "") : "https://microsoft.com/devicelogin",
+    userCode: codeMatch[1],
+  };
+}
+
+/**
  * @typedef {object} PendingAuth
  * @property {import("node:child_process").ChildProcess} child The waiting client.
+ * @property {"redirect"|"device"} mode Which sign-in flow this attempt uses.
+ * @property {{verificationUrl: string, userCode: string}|null} devicePrompt Device code details, when in device mode.
  * @property {string|null} authUrl The URL the user has to open, once known.
  * @property {string} urlFile Path of the file the client wrote the URL to.
  * @property {string} responseFile Path of the file the client waits for.
@@ -213,7 +238,17 @@ export async function begin(instance) {
   });
 
   /** @type {PendingAuth} */
-  const attempt = { child, authUrl: null, urlFile, responseFile, output, timeout: null, exited };
+  const attempt = {
+    child,
+    mode: "redirect",
+    devicePrompt: null,
+    authUrl: null,
+    urlFile,
+    responseFile,
+    output,
+    timeout: null,
+    exited,
+  };
 
   // Registered before the first await: a second begin() for the same instance
   // (a double click, a UI retry) must be able to find and kill this attempt.
@@ -284,6 +319,127 @@ export async function complete(instance, responseUrl) {
   const ok = result.code === 0;
   log.info("sign-in finished", { instance: instance.id, ok, code: result.code });
   return { ok, text };
+}
+
+/**
+ * Start a sign-in that uses a device code.
+ *
+ * Unlike the redirect flow this needs no second step from the station: the
+ * client polls Microsoft on its own until the user has entered the code, then
+ * writes its refresh token and exits. The caller only has to watch for that.
+ *
+ * The instance must have use_device_auth enabled in its client config, which
+ * instances.js writes from the account's options.
+ *
+ * @param {object} instance Instance record.
+ * @returns {Promise<{verificationUrl: string, userCode: string}>} What the user has to enter, and where.
+ * @throws {AuthFlowError} When the client never printed a code.
+ */
+export async function beginDeviceAuth(instance) {
+  await cancel(instance.id);
+
+  const args = [...baseArgs(instance), ...AUTH_CARRIER_ARGS];
+  const invocation = clientCommand(args);
+  const child = spawn(invocation.command, invocation.args, { stdio: ["ignore", "pipe", "pipe"] });
+
+  const output = createRingBuffer(200);
+  child.stdout.setEncoding("utf8");
+  child.stderr.setEncoding("utf8");
+  child.stdout.on("data", (chunk) => output.push(chunk));
+  child.stderr.on("data", (chunk) => output.push(chunk));
+
+  const exited = new Promise((resolve) => {
+    child.on("close", (code, signal) => resolve({ code, signal }));
+  });
+
+  /** @type {PendingAuth} */
+  const attempt = {
+    child,
+    mode: "device",
+    devicePrompt: null,
+    authUrl: null,
+    // No handshake files in this flow; the fields stay set so cancel() and the
+    // cleanup helpers can treat both modes alike.
+    urlFile: join(AUTH_DIR, `${instance.id}.url`),
+    responseFile: join(AUTH_DIR, `${instance.id}.response`),
+    output,
+    timeout: null,
+    exited,
+  };
+  pending.set(instance.id, attempt);
+
+  // Poll the collected output until the client has printed the code. It cannot
+  // be read from a file here, so this watches the buffer instead.
+  const deadline = Date.now() + URL_WAIT_MS;
+  while (Date.now() < deadline) {
+    if (pending.get(instance.id) !== attempt) {
+      child.kill("SIGKILL");
+      throw new AuthFlowError("the sign-in was superseded by a newer attempt");
+    }
+    const prompt = parseDeviceCodePrompt(outputText(attempt));
+    if (prompt) {
+      attempt.devicePrompt = prompt;
+      // The code expires on Microsoft's side; give up a little later than that
+      // so a forgotten attempt cannot hold the config directory forever.
+      attempt.timeout = setTimeout(() => {
+        cancel(instance.id).catch(() => {});
+      }, SIGN_IN_TIMEOUT_MS);
+      log.info("device sign-in started", { instance: instance.id });
+      return prompt;
+    }
+    // The client may also fail before printing anything, for example when the
+    // tenant forbids this flow. Surfacing its own words beats a timeout.
+    const finished = await withDeadline(exited, POLL_INTERVAL_MS);
+    if (finished) {
+      pending.delete(instance.id);
+      throw new AuthFlowError(`the client stopped before showing a code.\n${outputText(attempt)}`);
+    }
+  }
+
+  child.kill("SIGKILL");
+  pending.delete(instance.id);
+  throw new AuthFlowError(`the client did not show a device code.\n${outputText(attempt)}`);
+}
+
+/**
+ * State of a pending sign-in, for the UI to poll while the user is at Microsoft.
+ * @param {object} instance Instance record.
+ * @returns {{pending: boolean, mode: string|null, devicePrompt: object|null, output: string}} Current state.
+ */
+export function attemptState(instance) {
+  const attempt = pending.get(instance.id);
+  if (!attempt) return { pending: false, mode: null, devicePrompt: null, output: "" };
+  return {
+    pending: true,
+    mode: attempt.mode,
+    devicePrompt: attempt.devicePrompt,
+    output: outputText(attempt),
+  };
+}
+
+/**
+ * Wait for a device sign-in to finish, without blocking the request.
+ *
+ * Resolves as soon as the client exits, or reports that it is still waiting for
+ * the user. The UI calls this repeatedly, so it must always return quickly.
+ *
+ * @param {object} instance Instance record.
+ * @param {number} [waitMs] How long to wait for the client before answering.
+ * @returns {Promise<{done: boolean, ok?: boolean, text?: string}>} Whether the sign-in completed.
+ */
+export async function pollDeviceAuth(instance, waitMs = 2000) {
+  const attempt = pending.get(instance.id);
+  if (!attempt) return { done: true, ok: false, text: "no sign-in is pending" };
+
+  const result = await withDeadline(attempt.exited, waitMs);
+  if (!result) return { done: false };
+
+  if (attempt.timeout) clearTimeout(attempt.timeout);
+  if (pending.get(instance.id) === attempt) pending.delete(instance.id);
+
+  const ok = result.code === 0;
+  log.info("device sign-in finished", { instance: instance.id, ok, code: result.code });
+  return { done: true, ok, text: outputText(attempt) };
 }
 
 /**

@@ -41,6 +41,7 @@ const DEFAULT_OPTIONS = {
   threads: 8, // upstream default, max 16
   applicationId: "", // empty = upstream default public client application
   azureTenantId: "", // empty = common endpoint
+  useDeviceAuth: false, // sign in with a device code instead of pasting a URL
 };
 
 let cache = null;
@@ -96,6 +97,7 @@ export function normaliseOptions(raw = {}, base = DEFAULT_OPTIONS) {
 
   if (has("downloadOnly")) next.downloadOnly = validate.boolean(raw.downloadOnly);
   if (has("uploadOnly")) next.uploadOnly = validate.boolean(raw.uploadOnly);
+  if (has("useDeviceAuth")) next.useDeviceAuth = validate.boolean(raw.useDeviceAuth);
   if (has("skipDotfiles")) next.skipDotfiles = validate.boolean(raw.skipDotfiles);
   if (has("skipSymlinks")) next.skipSymlinks = validate.boolean(raw.skipSymlinks);
   if (has("syncBusinessSharedItems")) {
@@ -336,6 +338,10 @@ export function writeClientConfig(instance) {
     ["rate_limit", o.rateLimit],
     ["threads", o.threads],
   ];
+  // Only written when enabled: the key changes which authorisation flow the
+  // client uses, and leaving it at "false" in the file is the same as absent
+  // while making every config file churn when the default changes.
+  if (o.useDeviceAuth) entries.push(["use_device_auth", true]);
   if (instance.driveId) entries.push(["drive_id", instance.driveId]);
   if (o.applicationId) entries.push(["application_id", o.applicationId]);
   if (o.azureTenantId) entries.push(["azure_tenant_id", o.azureTenantId]);

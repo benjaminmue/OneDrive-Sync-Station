@@ -606,3 +606,73 @@ code { font-family: var(--mono); font-size: 12px; }
 /* The "copy it now" note in the sign-in flow: the page the user is looking at
    redirects itself, so this one has to stand out from the surrounding hints. */
 .warn-hint { color: var(--warn); }
+
+/* --- Sign-in method chooser and the quoted Microsoft warning -------------- */
+
+.method-choice { margin-bottom: 16px; }
+.method-choice .check span p { margin: 2px 0 0; }
+
+.ms-warning {
+  border: 1px solid var(--warn);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  background: rgba(217, 160, 63, 0.08);
+}
+
+/* The warning is quoted verbatim from Microsoft's page: setting it apart makes
+   clear which words are theirs and which are ours. */
+.ms-warning blockquote {
+  margin: 8px 0;
+  padding: 8px 12px;
+  border-left: 3px solid var(--warn);
+  background: var(--bg-inset);
+  font-style: italic;
+  color: var(--text);
+}
+
+.warning-steps { margin: 6px 0 10px; padding-left: 20px; color: var(--text-muted); font-size: 13px; }
+.warning-steps li { margin: 4px 0; }
+
+.device-code {
+  font-family: var(--mono);
+  font-size: 20px;
+  letter-spacing: 0.12em;
+  padding: 8px 14px;
+  background: var(--bg-inset);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  user-select: all;
+}
+
+/* --- Folder picker -------------------------------------------------------- */
+
+.folder-picker {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  margin-bottom: 12px;
+}
+
+.folder-picker .section-head { margin-bottom: 6px; }
+.folder-picker h4 { margin: 0; }
+
+.folder-list { list-style: none; margin: 4px 0 0; padding-left: 14px; }
+.folder-list .folder-list { border-left: 1px solid var(--border); }
+
+.folder-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 2px 0;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.folder-row input { accent-color: var(--accent); }
+
+.folder-picker details > summary {
+  cursor: pointer;
+  color: var(--text-faint);
+  font-size: 12px;
+  margin-left: 22px;
+}

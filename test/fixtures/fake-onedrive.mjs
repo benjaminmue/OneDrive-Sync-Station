@@ -88,6 +88,33 @@ if (has("--auth-files")) {
   process.exit(1);
 }
 
+// Device code flow: the real client prints the verification URL and a code,
+// then polls Microsoft by itself until the user confirms. The marker file plays
+// the part of the user confirming.
+if (process.env.FAKE_DEVICE_AUTH === "1" && has("--display-quota") && !has("--auth-files")) {
+  const confirmFile = join(confDir || ".", ".device-confirmed");
+  process.stdout.write("Authorise this application by visiting:\n");
+  process.stdout.write("https://microsoft.com/devicelogin\n");
+  process.stdout.write("Enter the following code when prompted: FAKE-CODE-123\n");
+
+  if (process.env.FAKE_DEVICE_REFUSED === "1") {
+    process.stdout.write("ERROR: this tenant does not allow the device code flow\n");
+    process.exit(1);
+  }
+
+  for (let waited = 0; waited < 30_000; waited += 100) {
+    if (existsSync(confirmFile)) {
+      mkdirSync(confDir, { recursive: true });
+      writeFileSync(join(confDir, "refresh_token"), "fake-refresh-token\n");
+      process.stdout.write("Authorised. Quota: 1024 MB remaining\n");
+      process.exit(0);
+    }
+    await sleep(100);
+  }
+  process.stdout.write("The device code expired\n");
+  process.exit(1);
+}
+
 if (has("--logout")) {
   process.stdout.write("Signed out\n");
   process.exit(0);

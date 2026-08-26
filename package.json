@@ -4,7 +4,7 @@
   "description": "Web UI + Docker container to sync multiple OneDrive Personal, Business and SharePoint accounts, built on the abraunegg OneDrive Client for Linux. Made for Unraid.",
   "type": "module",
   "engines": {
-    "node": ">=22.0.0"
+    "node": ">=24.0.0"
   },
   "bin": {
     "onedrive-sync-station": "src/server.js"
