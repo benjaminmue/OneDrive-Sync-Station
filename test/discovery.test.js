@@ -135,13 +135,11 @@ test("the account reports whether a folder list exists yet", async () => {
   assert.equal(noRun.foldersKnown, false);
 });
 
-test("a completed sign-in fetches the folder list by itself", async () => {
-  // Asking the user to choose folders before anything is known about the
-  // account is a decision without information. The station goes and gets it.
-  const { readFileSync } = await import("node:fs");
-  const registry = JSON.parse(
-    readFileSync(join(env.root, "config", "instances.json"), "utf8")
-  );
-  const account = registry.instances.find((item) => item.id === "discover-me");
-  assert.equal(account.setupComplete, false, "and still does not sync on its own");
+test("fetching the list does not make the account start syncing", async () => {
+  // The list is fetched for the user, the decision is not made for them: a
+  // discovery run must never be mistaken for consent to sync.
+  const listed = body(await call("GET", "/api/instances"));
+  const account = listed.find((item) => item.id === "discover-me");
+  assert.equal(account.setupComplete, false);
+  assert.equal(env.supervisor.status("discover-me").running, false);
 });
