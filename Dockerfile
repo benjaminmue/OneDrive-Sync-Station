@@ -11,6 +11,9 @@ ARG ONEDRIVE_VERSION=v2.5.11
 FROM debian:trixie AS client-build
 ARG ONEDRIVE_VERSION
 
+# libdbus-1-dev is not optional: the client's configure script enables dbus
+# support unconditionally on Linux and fails without it. The container never
+# talks to a session bus, but the dependency has to be satisfied to build.
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
        build-essential \
@@ -18,6 +21,7 @@ RUN apt-get update \
        git \
        ldc \
        libcurl4-openssl-dev \
+       libdbus-1-dev \
        libsqlite3-dev \
        pkg-config \
   && rm -rf /var/lib/apt/lists/*
@@ -42,6 +46,7 @@ RUN apt-get update \
        ca-certificates \
        gosu \
        libcurl4t64 \
+       libdbus-1-3 \
        libphobos2-ldc-shared110 \
        libsqlite3-0 \
   && rm -rf /var/lib/apt/lists/*
