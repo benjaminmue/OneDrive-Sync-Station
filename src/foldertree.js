@@ -71,6 +71,41 @@ function dryRunDatabasePath(instance) {
  * @param {string} source Label reported to the caller.
  * @returns {{available: true, source: string, folders: FolderNode[], truncated: boolean}|null} The tree, or null when this source has nothing.
  */
+/**
+ * Folder tree from one database, or an empty list when it cannot be read.
+ *
+ * A missing or damaged cache is one source being unavailable, not a failure:
+ * the others still contribute.
+ *
+ * @param {string} file Absolute path of a candidate database.
+ * @returns {FolderNode[]} Folders, empty when this source has none.
+ */
+function safeTreeFrom(file) {
+  if (!existsSync(file)) return [];
+  try {
+    return buildTree(readFolderRows(file));
+  } catch (err) {
+    log.warn("could not read a folder cache", { file, err: err.message });
+    return [];
+  }
+}
+
+/**
+ * Folder paths a discovery run recorded, or an empty list.
+ * @param {object} instance Instance record.
+ * @returns {string[]} Recorded paths.
+ */
+function readDiscoveredPaths(instance) {
+  const file = join(instanceConfDir(instance.id), "discovered-folders.json");
+  if (!existsSync(file)) return [];
+  try {
+    const data = JSON.parse(readFileSync(file, "utf8"));
+    return Array.isArray(data?.folders) ? data.folders : [];
+  } catch {
+    return [];
+  }
+}
+
 function treeFrom(file, source) {
   if (!existsSync(file)) return null;
   const folders = buildTree(readFolderRows(file));
@@ -199,6 +234,41 @@ export function treeFromPaths(paths) {
 }
 
 /**
+ * Merge several sets of folder paths into one tree.
+ *
+ * The sources have to add up rather than take turns. A discovery run only names
+ * directories that do not exist locally yet, so on an account that is already
+ * partly synced it reports the missing ones and stays silent about the rest;
+ * used alone it would show a list that shrinks as syncing progresses, and an
+ * empty one for an account that is fully synced.
+ *
+ * @param {string[][]} sets Path lists to combine.
+ * @returns {string[]} Every path, without duplicates.
+ */
+function mergePaths(sets) {
+  const all = new Set();
+  for (const set of sets) for (const path of set) if (path) all.add(path);
+  return [...all];
+}
+
+/**
+ * Flatten a tree back to its paths, relative and without the leading slash.
+ * @param {FolderNode[]} nodes Tree to flatten.
+ * @returns {string[]} Paths.
+ */
+function flattenPaths(nodes) {
+  const paths = [];
+  const walk = (list) => {
+    for (const node of list) {
+      paths.push(node.path.replace(new RegExp("^\\/"), ""));
+      walk(node.children);
+    }
+  };
+  walk(nodes);
+  return paths;
+}
+
+/**
  * Read the folders a discovery run recorded.
  *
  * The run writes them out because they exist nowhere else afterwards: the
@@ -307,19 +377,30 @@ function readLocalTree(instance) {
  */
 export function readFolderTree(instance) {
   try {
-    // Ordered by how complete each source is. The sync cache knows every folder
-    // the client saw, including ones it never downloads, so it wins when it has
-    // content. The dry-run cache is what a discovery run fills before any file
-    // is transferred, which is the only source available before the first sync.
-    // An empty cache is not an answer but the absence of one: the client clears
-    // it on a resync and refills it as it goes.
-    const fromSync = treeFrom(databasePath(instance), "client-database");
-    if (fromSync) return fromSync;
-    const fromDryRun = treeFrom(dryRunDatabasePath(instance), "discovery");
-    if (fromDryRun) return fromDryRun;
-    const fromDiscovery = readDiscovered(instance);
-    if (fromDiscovery) return fromDiscovery;
-    return readLocalTree(instance);
+    // Every source contributes; none of them is complete on its own.
+    //
+    //   - the sync cache knows what the client last saw, but with a folder
+    //     selection in force that is only the selected folders
+    //   - a discovery run names directories that are missing locally, so it
+    //     says nothing about the ones already synced
+    //   - the data directory holds exactly the ones already synced
+    //
+    // Together they cover the account. Letting one source win, as this did
+    // before, produced a list that shrank as syncing progressed.
+    const paths = mergePaths([
+      flattenPaths(safeTreeFrom(databasePath(instance))),
+      flattenPaths(safeTreeFrom(dryRunDatabasePath(instance))),
+      readDiscoveredPaths(instance),
+      flattenPaths(readLocalTree(instance).folders),
+    ]);
+
+    if (!paths.length) return { available: false, reason: "not-synced-yet", folders: [] };
+    return {
+      available: true,
+      source: "combined",
+      folders: treeFromPaths(paths.slice(0, MAX_FOLDERS)),
+      truncated: paths.length > MAX_FOLDERS,
+    };
   } catch (err) {
     // A locked database is transient, anything else means the schema moved
     // under us. Both leave the user with the rule editor, so neither is fatal.

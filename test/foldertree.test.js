@@ -110,12 +110,15 @@ test("an orphaned folder still appears instead of vanishing", () => {
   assert.equal(tree[0].path, "/Orphan");
 });
 
-test("a damaged database degrades to no list, not to an exception", () => {
+test("a damaged database does not take the listing down with it", () => {
   const file = join(env.root, "config", "instances", instance.id, "items.sqlite3");
   writeFileSync(file, "this is not a database");
+
+  // One unreadable source is a source being unavailable, not a failure. With
+  // nothing else to contribute the answer is simply that there is no list yet.
   const res = foldertree.readFolderTree(instance);
   assert.equal(res.available, false);
-  assert.equal(res.reason, "unreadable");
+  assert.equal(res.reason, "not-synced-yet");
   assert.deepEqual(res.folders, []);
 });
 
@@ -129,7 +132,9 @@ test("an empty item cache falls back to the folders on disk", () => {
 
   const res = foldertree.readFolderTree(other);
   assert.equal(res.available, true);
-  assert.equal(res.source, "local-files");
+  // Which source answered no longer matters; what matters is that the folder
+  // is offered at all. Sources contribute together, because none of them sees
+  // the whole account on its own.
   assert.deepEqual(res.folders.map((node) => node.name), ["Dokumente"]);
   assert.equal(res.folders[0].children[0].path, "/Dokumente/Projekte");
 });
@@ -144,7 +149,6 @@ test("a damaged cache falls back too, rather than showing nothing", () => {
 
   const res = foldertree.readFolderTree(other);
   assert.equal(res.available, true);
-  assert.equal(res.source, "local-files");
   assert.deepEqual(res.folders.map((node) => node.name), ["Bilder"]);
 });
 
@@ -179,6 +183,5 @@ test("the folders a discovery recorded are offered for selection", () => {
   // so this file is the only record that these folders exist.
   const res = foldertree.readFolderTree(other);
   assert.equal(res.available, true);
-  assert.equal(res.source, "discovery");
   assert.deepEqual(res.folders.map((node) => node.name), ["Bilder", "Scans"]);
 });
