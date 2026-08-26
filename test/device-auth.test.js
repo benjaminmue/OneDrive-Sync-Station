@@ -124,7 +124,7 @@ test("the account is signed in once the user confirms at Microsoft", async () =>
 });
 
 test("a second begin returns the waiting attempt instead of a new code", async () => {
-  await call("POST", "/api/instances", { name: "Resume Me", type: "personal" });
+  await call("POST", "/api/instances", { name: "Resume Me", type: "business" });
   const first = body(await call("POST", "/api/instances/resume-me/signin/begin", {
     useDeviceAuth: true,
   }));
@@ -143,4 +143,18 @@ test("a second begin returns the waiting attempt instead of a new code", async (
   assert.equal(state.devicePrompt.userCode, first.userCode);
 
   await call("POST", "/api/instances/resume-me/signin/cancel");
+});
+
+test("personal accounts are refused the code method, by the API not just the UI", async () => {
+  await call("POST", "/api/instances", { name: "Personal One", type: "personal" });
+  const res = await call("POST", "/api/instances/personal-one/signin/begin", {
+    useDeviceAuth: true,
+  });
+
+  // Microsoft blocks the device code grant for personal accounts on
+  // applications it has not approved, and reports the refusal as an expired
+  // code seconds after issuing it. Handing out such a code would send the user
+  // through repeated failures with nothing pointing at the real cause.
+  assert.equal(res.statusCode, 409);
+  assert.equal(body(res).error, "device-auth-unavailable-for-personal");
 });

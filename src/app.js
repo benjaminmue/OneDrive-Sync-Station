@@ -227,7 +227,7 @@ export async function createApp() {
 
   // --- Sign-in --------------------------------------------------------------
 
-  app.post("/api/instances/:id/signin/begin", async (request) => {
+  app.post("/api/instances/:id/signin/begin", async (request, reply) => {
     const instance = instanceFromRequest(request);
     // A running monitor holds the same config directory; letting a second client
     // authorise into it at the same time would race over the token files.
@@ -247,7 +247,15 @@ export async function createApp() {
         : { mode: "redirect", resumed: true, authUrl: existing.authUrl };
     }
 
+    // Microsoft blocks the device code grant for personal accounts unless it
+    // has approved the application, and reports the refusal as an expired code
+    // even seconds after issuing it. Accepting the request would hand the user
+    // a code that cannot work, so it is refused here as well as hidden in the
+    // UI: the API must not depend on the UI to enforce this.
     const wantDevice = validate.boolean(request.body?.useDeviceAuth);
+    if (wantDevice && instance.type === "personal") {
+      return reply.code(409).send({ error: "device-auth-unavailable-for-personal" });
+    }
     if (wantDevice !== Boolean(instance.options.useDeviceAuth)) {
       instances.updateInstance(instance.id, { options: { useDeviceAuth: wantDevice } });
     }

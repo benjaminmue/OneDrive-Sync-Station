@@ -137,6 +137,11 @@ export const en = {
     "You open one Microsoft page, type a short code, and this account signs " +
     "itself in. Nothing has to be copied back. Some company tenants forbid " +
     "this method; if it is refused, use the other one.",
+  "signin.methodDeviceBlocked":
+    "Not available for personal Microsoft accounts. Microsoft blocks this " +
+    "method for outlook.com, hotmail.com and similar accounts unless it has " +
+    "approved the application, and rejects the code as expired even when it is " +
+    "seconds old. Use the other method below.",
   "signin.methodRedirectHint":
     "You sign in and then copy the address of the page you land on back into " +
     "this form. It works everywhere, but the page redirects itself after a few " +
@@ -359,6 +364,9 @@ export const en = {
   "errors.unknown-instance": "This account no longer exists.",
   "errors.not-a-url": "That is not a URL. Paste the full address from the address bar.",
   "errors.invalid-scheme": "The pasted URL must start with http:// or https://.",
+  "errors.device-auth-unavailable-for-personal":
+    "Microsoft does not allow the code method for personal accounts. Use the " +
+    "other sign-in method.",
   "errors.unexpected-host":
     "That URL does not look like the Microsoft redirect. Paste the address of the " +
     "blank page you landed on after signing in, not the sign-in link itself.",
@@ -976,6 +984,7 @@ async function openSignInPanel(card, id) {
  * @returns {HTMLElement} The chooser.
  */
 function buildMethodChooser(card, id, body) {
+  const instanceType = model.get(id)?.type || "personal";
   const wrap = el("div", { className: "method-choice" });
   wrap.append(el("strong", { text: t("signin.method") }));
 
@@ -987,11 +996,12 @@ function buildMethodChooser(card, id, body) {
    * @param {string} hintKey Explanation string key.
    * @param {boolean} checked Whether it starts selected.
    */
-  const option = (value, labelKey, hintKey, checked) => {
+  const option = (value, labelKey, hintKey, checked, disabled = false) => {
     const input = el("input", {
       attrs: { type: "radio", name: `method-${id}`, id: `method-${id}-${value}`, value },
     });
     input.checked = checked;
+    input.disabled = disabled;
     group.append(
       el(
         "label",
@@ -1002,8 +1012,19 @@ function buildMethodChooser(card, id, body) {
     );
   };
 
-  option("device", "signin.methodDevice", "signin.methodDeviceHint", true);
-  option("redirect", "signin.methodRedirect", "signin.methodRedirectHint", false);
+  // Microsoft blocks the device code grant for personal accounts on
+  // applications it has not approved, and reports the refusal as an expired
+  // code. Offering the choice there would send people through three failed
+  // attempts before they suspect the method rather than themselves.
+  const deviceUsable = instanceType !== "personal";
+  option(
+    "device",
+    "signin.methodDevice",
+    deviceUsable ? "signin.methodDeviceHint" : "signin.methodDeviceBlocked",
+    deviceUsable,
+    !deviceUsable
+  );
+  option("redirect", "signin.methodRedirect", "signin.methodRedirectHint", !deviceUsable);
   wrap.append(group);
 
   const startButton = el("button", {

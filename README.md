@@ -67,6 +67,20 @@ docker compose up -d --build
    back into the UI. That URL carries the authorisation code.
 4. Syncing starts on its own.
 
+### Which sign-in method
+
+**Business and SharePoint** can use the device code: the UI shows a short code,
+you enter it on one Microsoft page, and the client signs itself in. Nothing is
+copied back.
+
+**Personal accounts cannot.** Microsoft blocks the device code grant for
+personal accounts (outlook.com, hotmail.com, and the like) unless it has
+explicitly approved the application, and refuses the code as expired even
+seconds after issuing it. That is
+[documented upstream](https://github.com/abraunegg/onedrive/blob/master/docs/usage.md).
+Personal accounts therefore use the copy-and-paste method above, and the UI
+offers only that.
+
 Nothing else is needed for Personal, Business or SharePoint. In particular:
 
 - **No client secret**, and normally **no app registration of your own**. The
