@@ -1,0 +1,5 @@
+# The entrypoint runs inside a Linux container: CRLF would break its shebang.
+# Normalise everything to LF in the repository, regardless of the checkout host.
+* text=auto eol=lf
+*.png binary
+*.svg text eol=lf

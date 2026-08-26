@@ -1,0 +1,20 @@
+services:
+  onedrive-sync-station:
+    build: .
+    image: onedrive-sync-station:local
+    container_name: onedrive-sync-station
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      # Station settings, per-account client config and Microsoft refresh tokens.
+      - ./appdata/config:/config
+      # Synced files. One subfolder per account is created below this path.
+      - ./appdata/data:/data
+    environment:
+      TZ: Europe/Zurich
+      PUID: "99"
+      PGID: "100"
+      UMASK: "0002"
+      # Set once to recover a lost web UI password, then remove it again.
+      # ADMIN_PASSWORD: "change-me"

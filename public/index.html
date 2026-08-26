@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>OneDrive Sync Station</title>
+    <link rel="icon" href="logo.svg" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header>
+      <img class="logo" src="logo.svg" alt="" />
+      <h1>OneDrive Sync Station</h1>
+      <span class="meta" id="meta"></span>
+    </header>
+
+    <main>
+      <!-- First run: no password configured yet. -->
+      <section class="card hidden" id="view-setup">
+        <h2>Set a web UI password</h2>
+        <p class="hint">
+          This UI can sign in to Microsoft accounts and reaches every synced file, so it is
+          password protected. At least 8 characters.
+        </p>
+        <label for="setup-password">Password</label>
+        <input type="password" id="setup-password" autocomplete="new-password" />
+        <label for="setup-password-repeat">Repeat password</label>
+        <input type="password" id="setup-password-repeat" autocomplete="new-password" />
+        <div class="row" style="margin-top: 16px">
+          <button class="primary" id="setup-submit">Save password</button>
+        </div>
+        <div class="msg hidden" id="setup-msg"></div>
+      </section>
+
+      <!-- Returning user. -->
+      <section class="card hidden" id="view-login">
+        <h2>Sign in</h2>
+        <label for="login-password">Password</label>
+        <input type="password" id="login-password" autocomplete="current-password" />
+        <div class="row" style="margin-top: 16px">
+          <button class="primary" id="login-submit">Sign in</button>
+        </div>
+        <div class="msg hidden" id="login-msg"></div>
+      </section>
+
+      <!-- Main application. -->
+      <div class="hidden" id="view-main">
+        <section class="card">
+          <h2>Accounts</h2>
+          <p class="hint" id="accounts-hint">Loading…</p>
+          <div id="instances"></div>
+        </section>
+
+        <section class="card">
+          <h2>Add an account</h2>
+          <p class="hint">
+            Each account gets its own folder below the data volume and its own sign-in.
+            A SharePoint document library counts as an account of its own.
+          </p>
+          <div class="grid">
+            <div>
+              <label for="new-name">Display name</label>
+              <input type="text" id="new-name" placeholder="Work business" />
+            </div>
+            <div>
+              <label for="new-type">Type</label>
+              <select id="new-type">
+                <option value="personal">OneDrive Personal</option>
+                <option value="business">OneDrive Business</option>
+                <option value="sharepoint">SharePoint library</option>
+              </select>
+            </div>
+          </div>
+          <div id="new-sharepoint" class="hidden">
+            <label for="new-drive-id">Drive ID</label>
+            <input type="text" id="new-drive-id" placeholder="b!…" />
+            <p class="hint" style="margin-top: 6px">
+              Look it up below once a business account is signed in.
+            </p>
+          </div>
+          <div class="row" style="margin-top: 16px">
+            <button class="primary" id="new-submit">Create account</button>
+          </div>
+          <div class="msg hidden" id="new-msg"></div>
+        </section>
+
+        <section class="card">
+          <h2>SharePoint lookup</h2>
+          <p class="hint">
+            Queries the document libraries of a site with the credentials of a signed-in
+            account, and returns the drive ID needed above.
+          </p>
+          <div class="grid">
+            <div>
+              <label for="sp-instance">Signed-in account</label>
+              <select id="sp-instance"></select>
+            </div>
+            <div>
+              <label for="sp-site">Site name or URL</label>
+              <input type="text" id="sp-site" placeholder="Marketing" />
+            </div>
+          </div>
+          <div class="row" style="margin-top: 16px">
+            <button id="sp-submit">Look up</button>
+          </div>
+          <div class="msg hidden" id="sp-msg"></div>
+          <pre class="log hidden" id="sp-out"></pre>
+        </section>
+
+        <section class="card">
+          <h2>Session</h2>
+          <div class="row">
+            <button id="logout">Sign out of the web UI</button>
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <script type="module" src="app.js"></script>
+  </body>
+</html>
