@@ -85,8 +85,14 @@ RUN npm ci --omit=dev && npm cache clean --force
 
 COPY src ./src
 COPY public ./public
-COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+# Installed as /entrypoint.sh on purpose, and this path is not cosmetic: the
+# client treats a --syncdir that differs from its config file as a configuration
+# change and demands a resync for it, unless it believes it is running in a
+# container. It decides that solely by the existence of /entrypoint.sh
+# (util.d, entrypointExists). Under any other name every container start costs
+# both accounts a full resync.
+COPY docker-entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 
 LABEL org.opencontainers.image.title="OneDrive Sync Station" \
       org.opencontainers.image.description="Web UI and Docker container to sync multiple OneDrive Personal, Business and SharePoint accounts." \
@@ -113,5 +119,5 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15m --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:'+(process.env.WEBUI_PORT||8080)+'/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
-ENTRYPOINT ["docker-entrypoint.sh"]
+ENTRYPOINT ["/entrypoint.sh"]
 CMD ["node", "src/server.js"]

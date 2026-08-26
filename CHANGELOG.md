@@ -8,6 +8,20 @@ Every published image carries a version. The header of the web UI shows it
 together with the commit the image was built from, so it is always possible to
 tell which build is running.
 
+## [0.3.0] - 2026-08-27
+
+### Fixed
+
+- Every container start forced a full resync on every account, and the drive id
+  lookup could not run at all. Both had the same cause: the client treats a
+  `--syncdir` that differs from its config file as a configuration change and
+  demands a resync for it, unless it believes it is running in a container. It
+  decides that solely by whether `/entrypoint.sh` exists. This image installed
+  its entrypoint under a different name, so the client never recognised the
+  container and re-read every account from scratch on each start, with nothing
+  in the logs pointing at the reason. The entrypoint now sits where the client
+  looks, and a test guards the path.
+
 ## [0.2.6] - 2026-08-27
 
 ### Fixed
