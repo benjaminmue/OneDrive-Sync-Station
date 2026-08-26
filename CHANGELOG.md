@@ -8,6 +8,15 @@ Every published image carries a version. The header of the web UI shows it
 together with the commit the image was built from, so it is always possible to
 tell which build is running.
 
+## [0.2.5] - 2026-08-27
+
+### Added
+
+- A drive id lookup that is refused in its own directory lists what that
+  directory actually held. The directory is created empty and receives one file,
+  so a refusal blaming a changed configuration is about something the client
+  brought along itself, and nothing else can tell us what.
+
 ## [0.2.4] - 2026-08-27
 
 ### Added

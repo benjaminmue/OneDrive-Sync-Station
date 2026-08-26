@@ -12,9 +12,9 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import {
-  copyFileSync,
   existsSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
@@ -334,6 +334,17 @@ async function lookupInScratchDir(instance, siteName) {
     if (existsSync(scratchToken)) {
       const after = readFileSync(scratchToken);
       if (!after.equals(before)) writeFileSync(sourceToken, after, { mode: 0o600 });
+    }
+
+    // The directory is created empty and holds one file this code put there, so
+    // a refusal that blames a changed configuration is talking about something
+    // the client brought along itself. Listing what is actually in there is the
+    // only way to tell which, and the directory is gone a moment later.
+    if (!res.ok) {
+      const contents = readdirSync(scratch).sort().join(", ") || "(empty)";
+      res = { ...res, text: `${res.text}
+
+[station] isolated run, directory held: ${contents}` };
     }
 
     return res;
