@@ -123,6 +123,21 @@ function record(id, chunk) {
 }
 
 /**
+ * Append a line to an instance log from outside the supervisor.
+ *
+ * Used by the discovery run, which is not a supervised client but whose output
+ * belongs in the same place: the user watches one log per account, not one per
+ * kind of task.
+ *
+ * @param {string} id Instance id.
+ * @param {string} chunk Text to record.
+ * @returns {void}
+ */
+export function appendLog(id, chunk) {
+  record(id, chunk);
+}
+
+/**
  * Notify subscribers that the state of an instance changed.
  * @param {string} id Instance id.
  * @returns {void}

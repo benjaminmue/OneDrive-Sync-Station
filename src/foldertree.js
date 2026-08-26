@@ -27,6 +27,13 @@ import { log } from "./logger.js";
 /** File the client keeps its item cache in, inside its config directory. */
 const DATABASE_FILE = "items.sqlite3";
 
+/**
+ * The cache a dry run writes instead. It is what makes choosing folders before
+ * the first sync possible at all: a discovery run fills this one while
+ * transferring nothing.
+ */
+const DRY_RUN_DATABASE_FILE = "items-dryrun.sqlite3";
+
 /** Item types that represent something a sync_list rule can select. */
 const FOLDER_TYPES = new Set(["dir", "remote"]);
 
@@ -47,6 +54,28 @@ const MAX_FOLDERS = 20_000;
  */
 function databasePath(instance) {
   return join(instanceConfDir(instance.id), DATABASE_FILE);
+}
+
+/**
+ * Absolute path of the dry-run item database of an instance.
+ * @param {object} instance Instance record.
+ * @returns {string} Absolute path.
+ */
+function dryRunDatabasePath(instance) {
+  return join(instanceConfDir(instance.id), DRY_RUN_DATABASE_FILE);
+}
+
+/**
+ * Try one database file and return its folder tree, or null.
+ * @param {string} file Absolute path of a candidate database.
+ * @param {string} source Label reported to the caller.
+ * @returns {{available: true, source: string, folders: FolderNode[], truncated: boolean}|null} The tree, or null when this source has nothing.
+ */
+function treeFrom(file, source) {
+  if (!existsSync(file)) return null;
+  const folders = buildTree(readFolderRows(file));
+  if (!folders.length) return null;
+  return { available: true, source, folders, truncated: countNodes(folders) > MAX_FOLDERS };
 }
 
 /**
@@ -204,23 +233,18 @@ function readLocalTree(instance) {
  * @returns {{available: boolean, reason?: string, folders: FolderNode[], truncated?: boolean}} The tree or why there is none.
  */
 export function readFolderTree(instance) {
-  const file = databasePath(instance);
-  if (!existsSync(file)) return readLocalTree(instance);
-
   try {
-    const rows = readFolderRows(file);
-    const folders = buildTree(rows);
-    // An empty cache is not an answer, it is the absence of one: the client
-    // clears it on a resync and refills it as it goes, so a listing taken in
-    // between would tell the user their account has no folders.
-    if (!folders.length) return readLocalTree(instance);
-    const total = countNodes(folders);
-    return {
-      available: true,
-      source: "client-database",
-      folders,
-      truncated: total > MAX_FOLDERS,
-    };
+    // Ordered by how complete each source is. The sync cache knows every folder
+    // the client saw, including ones it never downloads, so it wins when it has
+    // content. The dry-run cache is what a discovery run fills before any file
+    // is transferred, which is the only source available before the first sync.
+    // An empty cache is not an answer but the absence of one: the client clears
+    // it on a resync and refills it as it goes.
+    const fromSync = treeFrom(databasePath(instance), "client-database");
+    if (fromSync) return fromSync;
+    const fromDryRun = treeFrom(dryRunDatabasePath(instance), "discovery");
+    if (fromDryRun) return fromDryRun;
+    return readLocalTree(instance);
   } catch (err) {
     // A locked database is transient, anything else means the schema moved
     // under us. Both leave the user with the rule editor, so neither is fatal.

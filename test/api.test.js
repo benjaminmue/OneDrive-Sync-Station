@@ -128,9 +128,25 @@ test("the sign-in handshake hands out a URL and accepts only a Microsoft redirec
   assert.equal(body(res).authenticated, true);
 });
 
-test("a signed-in account starts syncing and produces a log", async () => {
+test("a fresh sign-in does not start syncing on its own", async () => {
+  // The account has to wait for the user to choose folders. Starting here would
+  // pull the whole account down before the selection is even on screen, which on
+  // a large account means gigabytes of the wrong data.
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  assert.equal(env.supervisor.status("work-business").running, false);
+  assert.equal(body(await call("GET", "/api/instances/work-business")).setupComplete, false);
+});
+
+test("starting explicitly is what begins the sync and confirms the setup", async () => {
+  const res = await call("POST", "/api/instances/work-business/start");
+  assert.equal(res.statusCode, 200);
+
   const started = await waitFor(() => env.supervisor.status("work-business").running);
   assert.ok(started, "the client is running");
+
+  // Starting is the moment the user accepts what will be synced, so the account
+  // may come up by itself after a container restart from now on.
+  assert.equal(body(await call("GET", "/api/instances/work-business")).setupComplete, true);
 
   const gotOutput = await waitFor(() =>
     env.supervisor.logs("work-business").some((entry) => entry.line.includes("monitor mode"))

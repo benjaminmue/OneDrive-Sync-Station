@@ -676,3 +676,13 @@ code { font-family: var(--mono); font-size: 12px; }
   font-size: 12px;
   margin-left: 22px;
 }
+
+/* The first-run choice: prominent, because syncing waits for it. */
+.setup-choice {
+  border: 1px solid var(--accent);
+  background: rgba(15, 120, 212, 0.08);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  margin: 10px 0;
+}
+.setup-choice .form-actions { margin-top: 10px; }

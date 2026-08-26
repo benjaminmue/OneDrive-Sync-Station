@@ -207,6 +207,28 @@ export const en = {
   "picker.sourceLocal":
     "Listing the folders that are already on this server. Folders you have never " +
     "synced are not in here yet; add those as a rule by hand.",
+  "setup.needed": "Choose what to sync before the first sync starts",
+  "setup.needsHint":
+    "Nothing has been downloaded yet. This account syncs everything unless you " +
+    "narrow it down, and on a large account that is a lot of data, so the " +
+    "decision comes first.",
+  "setup.discover": "Look at the folders first",
+  "setup.discoverHint":
+    "Asks Microsoft what is in this account and downloads nothing. Takes a " +
+    "moment on a large account; the log shows the progress.",
+  "setup.discovering": "Looking at the account, nothing is being downloaded...",
+  "setup.syncAll": "Sync everything",
+  "setup.syncAllHint": "Start right away and take the whole account.",
+  "setup.chooseFolders": "Choose folders",
+  "setup.ready":
+    "The folder list is ready. Open Folders, tick what you want, save, and then " +
+    "press Start.",
+  "picker.sourceDiscovery":
+    "Listing what Microsoft reports for this account. Nothing has been " +
+    "downloaded yet.",
+  "picker.discovering":
+    "Still looking at the account. The list appears when that finishes; the log " +
+    "shows the progress.",
   "picker.reload": "Reload list",
   "picker.expand": "Expand",
   "picker.collapse": "Collapse",
@@ -746,6 +768,12 @@ function updateSummary(card, instance) {
   // Failure states must be visible without opening anything.
   if (status.alert) {
     summary.append(el("p", { text: status.alert, className: "acc-alert", attrs: { role: "alert" } }));
+  }
+
+  // A signed-in account that never confirmed its selection gets the choice
+  // here, on the card, rather than starting to download behind the user.
+  if (instance.authenticated && !instance.setupComplete) {
+    summary.append(buildSetupChoice(card, instance));
   }
 
   // Action row. The primary slot depends on the account state; the disclosure
@@ -1316,6 +1344,59 @@ async function openFoldersPanel(card, id) {
   textarea.focus();
 }
 
+// --- First-run choice -------------------------------------------------------
+
+/**
+ * The decision an account faces after its first sign-in.
+ *
+ * Syncing does not start until this is answered. The client has no notion of
+ * "look but do not fetch" in its normal mode, so the alternative would be to
+ * start and hope the user narrows the selection faster than the download
+ * proceeds, which on a large account they cannot.
+ *
+ * @param {HTMLElement} card Instance card.
+ * @param {object} instance Instance as returned by the API.
+ * @returns {HTMLElement} The choice block.
+ */
+function buildSetupChoice(card, instance) {
+  const box = el("div", { className: "setup-choice" });
+  box.append(
+    el("strong", { text: t("setup.needed") }),
+    el("p", { text: t("setup.needsHint"), className: "hint" })
+  );
+
+  const actions = el("div", { className: "form-actions" });
+
+  if (instance.discovering) {
+    actions.append(el("p", { text: t("setup.discovering"), className: "hint" }));
+  } else {
+    const discover = actionButton(t("setup.discover"), "primary", async () => {
+      await api(`/api/instances/${instance.id}/discover`, { method: "POST" });
+      // The run reports progress through the account log, so open it: a silent
+      // wait of several minutes reads as a hung application.
+      openLogPanel(card, instance.id);
+      scheduleRefresh();
+    });
+    const syncAll = actionButton(t("setup.syncAll"), "", async () => {
+      await api(`/api/instances/${instance.id}/start`, { method: "POST" });
+      scheduleRefresh();
+    });
+    const choose = actionButton(t("setup.chooseFolders"), "", () =>
+      openFoldersPanel(card, instance.id)
+    );
+    actions.append(discover, choose, syncAll);
+  }
+
+  box.append(actions);
+  box.append(
+    el("p", {
+      text: instance.discovering ? t("setup.discoverHint") : t("setup.syncAllHint"),
+      className: "hint",
+    })
+  );
+  return box;
+}
+
 // --- Folder picker ----------------------------------------------------------
 
 /**
@@ -1425,6 +1506,10 @@ function buildFolderPicker(id, textarea) {
         );
         return;
       }
+      if (res.discovering) {
+        body.replaceChildren(el("p", { text: t("picker.discovering"), className: "hint" }));
+        return;
+      }
       if (!res.folders.length) {
         // A readable but empty list is not the same as an error, and silently
         // rendering nothing leaves the user staring at a blank box.
@@ -1437,6 +1522,9 @@ function buildFolderPicker(id, textarea) {
       // what is missing from it.
       if (res.source === "local-files") {
         parts.unshift(el("p", { text: t("picker.sourceLocal"), className: "hint" }));
+      }
+      if (res.source === "discovery") {
+        parts.unshift(el("p", { text: t("picker.sourceDiscovery"), className: "hint" }));
       }
       if (res.truncated) parts.push(el("p", { text: t("picker.truncated"), className: "hint" }));
       body.replaceChildren(...parts);

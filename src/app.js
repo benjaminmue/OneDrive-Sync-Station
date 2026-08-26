@@ -33,6 +33,7 @@ import * as onedrive from "./onedrive.js";
 import * as authflow from "./authflow.js";
 import * as synclist from "./synclist.js";
 import * as foldertree from "./foldertree.js";
+import * as discovery from "./discovery.js";
 import * as ratelimit from "./ratelimit.js";
 import * as validate from "./validate.js";
 import { ValidationError } from "./validate.js";
@@ -183,6 +184,7 @@ export async function createApp() {
     instances.listInstances().map((instance) => ({
       ...instances.describeInstance(instance),
       runtime: supervisor.status(instance.id),
+      discovering: discovery.isRunning(instance.id),
     }))
   );
 
@@ -198,6 +200,7 @@ export async function createApp() {
       ...instances.describeInstance(instance),
       runtime: supervisor.status(instance.id),
       signInPending: authflow.isPending(instance.id),
+      discovering: discovery.isRunning(instance.id),
     };
   });
 
@@ -255,7 +258,6 @@ export async function createApp() {
     const result = await authflow.pollDeviceAuth(instance);
     if (!result.done) return { done: false, authenticated: false };
     const authenticated = instances.isAuthenticated(instance);
-    if (authenticated && instance.autoStart) supervisor.start(instance);
     return { ...result, authenticated };
   });
 
@@ -267,7 +269,8 @@ export async function createApp() {
     const instance = instanceFromRequest(request);
     const result = await authflow.complete(instance, request.body?.responseUrl);
     const authenticated = instances.isAuthenticated(instance);
-    if (authenticated && instance.autoStart) supervisor.start(instance);
+    // Deliberately not started here: the user chooses folders first. See
+    // setupComplete in instances.js.
     return { ...result, authenticated };
   });
 
@@ -291,6 +294,9 @@ export async function createApp() {
     if (!instances.isAuthenticated(instance)) {
       return reply.code(409).send({ error: "not-authenticated" });
     }
+    // Starting is the moment the user accepts what will be synced, whether
+    // they picked folders or chose to take everything.
+    if (!instance.setupComplete) instances.updateInstance(instance.id, { setupComplete: true });
     supervisor.start(instance);
     return supervisor.status(instance.id);
   });
@@ -345,9 +351,31 @@ export async function createApp() {
 
   // The folder listing comes from the client's own item cache, so it needs no
   // token of its own and stays available while the client is running.
-  app.get("/api/instances/:id/folders", async (request) =>
-    foldertree.readFolderTree(instanceFromRequest(request))
-  );
+  app.get("/api/instances/:id/folders", async (request) => {
+    const instance = instanceFromRequest(request);
+    return {
+      ...foldertree.readFolderTree(instance),
+      discovering: discovery.isRunning(instance.id),
+    };
+  });
+
+  // Looks at the account without downloading anything, so the folder list
+  // exists before the first byte is transferred.
+  app.post("/api/instances/:id/discover", async (request, reply) => {
+    const instance = instanceFromRequest(request);
+    if (!instances.isAuthenticated(instance)) {
+      return reply.code(409).send({ error: "not-authenticated" });
+    }
+    // A sync client and a discovery run would hold the same config directory.
+    await supervisor.stop(instance.id);
+    return discovery.start(instance);
+  });
+
+  app.post("/api/instances/:id/discover/stop", async (request) => {
+    const instance = instanceFromRequest(request);
+    discovery.stop(instance.id);
+    return { ok: true };
+  });
 
   app.put("/api/instances/:id/synclist", async (request) => {
     const instance = instanceFromRequest(request);

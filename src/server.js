@@ -12,6 +12,7 @@ import { hashPassword, destroyAllSessions } from "./auth.js";
 import { createApp } from "./app.js";
 import * as instances from "./instances.js";
 import * as supervisor from "./supervisor.js";
+import * as discovery from "./discovery.js";
 import * as validate from "./validate.js";
 import { log } from "./logger.js";
 
@@ -65,6 +66,13 @@ function startEnabledInstances() {
       log.info("instance not signed in, not starting", { instance: instance.id });
       continue;
     }
+    // An account whose folder selection was never confirmed must not start
+    // syncing on a container restart either: the whole point of holding back
+    // after the sign-in is that nothing is transferred before the user decides.
+    if (!instance.setupComplete) {
+      log.info("instance awaiting folder selection, not starting", { instance: instance.id });
+      continue;
+    }
     supervisor.start(instance);
   }
 }
@@ -102,6 +110,7 @@ async function shutdown(signal) {
   if (shuttingDown) return;
   shuttingDown = true;
   log.info("shutting down", { signal });
+  discovery.stopAll();
   await supervisor.stopAll();
   await app.close();
   process.exit(0);

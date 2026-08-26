@@ -236,6 +236,11 @@ export function createInstance(input) {
     folder,
     driveId,
     autoStart: input.autoStart === undefined ? true : validate.boolean(input.autoStart),
+    // Syncing does not begin on its own until the user has decided what to
+    // sync. Starting right after the sign-in would download the entire account
+    // before the folder selection is even visible, which on a large account
+    // means gigabytes of the wrong data.
+    setupComplete: false,
     options: normaliseOptions(input.options || {}),
     createdAt: now,
     updatedAt: now,
@@ -274,6 +279,7 @@ export function updateInstance(id, patch) {
 
   if (patch.name !== undefined) next.name = validate.displayName(patch.name);
   if (patch.autoStart !== undefined) next.autoStart = validate.boolean(patch.autoStart);
+  if (patch.setupComplete !== undefined) next.setupComplete = validate.boolean(patch.setupComplete);
   if (patch.driveId !== undefined && current.type === "sharepoint") {
     next.driveId = validate.driveId(patch.driveId);
   }
