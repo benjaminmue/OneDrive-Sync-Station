@@ -21,6 +21,10 @@ jobs:
 
   image:
     runs-on: ubuntu-latest
+    # The client is compiled from source, so this job is minutes rather than
+    # seconds. The cap is there so a hanging verification step cannot burn an
+    # entire runner slot for hours.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
@@ -41,10 +45,15 @@ jobs:
 
       # The image is only useful if the client actually runs and the station
       # answers. Both are checked here rather than after a release.
+      # Passing a command runs it instead of the station: the entrypoint honours
+      # its arguments, so this exercises the real image, permission setup and
+      # all, and still returns.
       - name: Verify the client runs
+        timeout-minutes: 2
         run: docker run --rm onedrive-sync-station:ci onedrive --version
 
       - name: Verify the station starts and serves its API
+        timeout-minutes: 3
         run: |
           docker run -d --name station -p 8080:8080 onedrive-sync-station:ci
           for i in $(seq 1 30); do

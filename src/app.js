@@ -32,8 +32,10 @@ import * as supervisor from "./supervisor.js";
 import * as onedrive from "./onedrive.js";
 import * as authflow from "./authflow.js";
 import * as synclist from "./synclist.js";
+import * as ratelimit from "./ratelimit.js";
 import * as validate from "./validate.js";
 import { ValidationError } from "./validate.js";
+import { AuthFlowError } from "./authflow.js";
 import { log } from "./logger.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -41,6 +43,9 @@ const pkg = JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf8
 
 /** Routes reachable without a session. Everything else is gated. */
 const PUBLIC_ROUTES = new Set(["/api/health", "/api/state", "/api/setup-password", "/api/login"]);
+
+/** How much unsent event data a browser may accumulate before it is cut loose. */
+const SSE_BACKPRESSURE_LIMIT_BYTES = 1024 * 1024;
 
 /**
  * Build the Fastify application with all routes registered.
@@ -71,6 +76,10 @@ export async function createApp() {
     if (error instanceof ValidationError) {
       return reply.code(400).send({ error: error.reason, field: error.field });
     }
+    if (error instanceof AuthFlowError) {
+      log.warn("sign-in handshake failed", { url: request.url });
+      return reply.code(error.statusCode).send({ error: "signin-failed", detail: error.message });
+    }
     if (error.statusCode && error.statusCode < 500) {
       return reply.code(error.statusCode).send({ error: error.message });
     }
@@ -82,7 +91,7 @@ export async function createApp() {
     if (!request.url.startsWith("/api/")) return;
     const path = request.url.split("?")[0];
     if (PUBLIC_ROUTES.has(path)) return;
-    if (!isAuthed(request, reply)) reply.code(401).send({ error: "unauthorized" });
+    if (!isAuthed(request, reply)) return reply.code(401).send({ error: "unauthorized" });
   });
 
   /**
@@ -101,12 +110,15 @@ export async function createApp() {
     const settings = loadSettings();
     const authed = isAuthed(request, reply);
     const client = await onedrive.version();
+    // The host path and the account count are only interesting to someone who
+    // is signed in, and they tell a network scanner more about this machine
+    // than it needs to know.
     return {
       version: pkg.version,
       clientVersion: client.ok ? client.text.split("\n")[0] : null,
-      dataDir: DATA_DIR,
       setupNeeded: !settings.guiPasswordHash,
       authed,
+      dataDir: authed ? DATA_DIR : undefined,
       instanceCount: authed ? instances.listInstances().length : undefined,
     };
   });
@@ -123,10 +135,22 @@ export async function createApp() {
   });
 
   app.post("/api/login", async (request, reply) => {
+    // Throttled per client: this route is reachable without a session and does
+    // deliberately expensive work, so it is both the place to guess passwords
+    // and the cheapest way to keep the station busy.
+    const client = request.ip || "unknown";
+    const gate = ratelimit.check(client);
+    if (!gate.allowed) {
+      reply.header("Retry-After", String(gate.retryAfterSeconds));
+      return reply.code(429).send({ error: "too-many-attempts", retryAfter: gate.retryAfterSeconds });
+    }
+
     const settings = loadSettings();
-    if (!verifyPassword(String(request.body?.password ?? ""), settings.guiPasswordHash)) {
+    if (!(await verifyPassword(request.body?.password, settings.guiPasswordHash))) {
+      ratelimit.recordFailure(client);
       return reply.code(401).send({ error: "invalid-password" });
     }
+    ratelimit.recordSuccess(client);
     createSession(reply);
     return { ok: true };
   });
@@ -140,7 +164,7 @@ export async function createApp() {
 
   app.post("/api/change-password", async (request, reply) => {
     const settings = loadSettings();
-    if (!verifyPassword(String(request.body?.currentPassword ?? ""), settings.guiPasswordHash)) {
+    if (!(await verifyPassword(request.body?.currentPassword, settings.guiPasswordHash))) {
       return reply.code(401).send({ error: "invalid-password" });
     }
     const next = validate.password(request.body?.newPassword);
@@ -181,14 +205,14 @@ export async function createApp() {
     const updated = instances.updateInstance(instance.id, request.body || {});
     // Option changes only reach a running client on restart, so a running
     // instance is cycled to keep the UI and the running client in agreement.
-    if (supervisor.status(updated.id).running) supervisor.restart(updated);
+    if (supervisor.status(updated.id).running) await supervisor.restart(updated);
     return instances.describeInstance(updated);
   });
 
   app.delete("/api/instances/:id", async (request) => {
     const instance = instanceFromRequest(request);
-    authflow.cancel(instance.id);
-    supervisor.stop(instance.id);
+    await authflow.cancel(instance.id);
+    await supervisor.stop(instance.id);
     supervisor.forget(instance.id);
     instances.deleteInstance(instance.id, {
       deleteData: validate.boolean(request.query?.deleteData),
@@ -203,7 +227,7 @@ export async function createApp() {
     const instance = instanceFromRequest(request);
     // A running monitor holds the same config directory; letting a second client
     // authorise into it at the same time would race over the token files.
-    supervisor.stop(instance.id);
+    await supervisor.stop(instance.id);
     return authflow.begin(instance);
   });
 
@@ -217,13 +241,13 @@ export async function createApp() {
 
   app.post("/api/instances/:id/signin/cancel", async (request) => {
     const instance = instanceFromRequest(request);
-    authflow.cancel(instance.id);
+    await authflow.cancel(instance.id);
     return { ok: true };
   });
 
   app.post("/api/instances/:id/signout", async (request) => {
     const instance = instanceFromRequest(request);
-    supervisor.stop(instance.id);
+    await supervisor.stop(instance.id);
     const result = await onedrive.logout(instance);
     return { ...result, authenticated: instances.isAuthenticated(instance) };
   });
@@ -241,7 +265,7 @@ export async function createApp() {
 
   app.post("/api/instances/:id/stop", async (request) => {
     const instance = instanceFromRequest(request);
-    supervisor.stop(instance.id);
+    await supervisor.stop(instance.id);
     return supervisor.status(instance.id);
   });
 
@@ -250,7 +274,7 @@ export async function createApp() {
     if (!instances.isAuthenticated(instance)) {
       return reply.code(409).send({ error: "not-authenticated" });
     }
-    supervisor.restart(instance, { resync: validate.boolean(request.body?.resync) });
+    await supervisor.restart(instance, { resync: validate.boolean(request.body?.resync) });
     return supervisor.status(instance.id);
   });
 
@@ -289,11 +313,11 @@ export async function createApp() {
 
   app.put("/api/instances/:id/synclist", async (request) => {
     const instance = instanceFromRequest(request);
-    const stored = synclist.write(instance, request.body?.text ?? "");
+    const stored = synclist.write(instance, request.body?.text);
     // The client only picks up a changed selection after a full resync. Without
     // it the UI would show a rule set the running client is not applying.
     const running = supervisor.status(instance.id).running;
-    if (running) supervisor.restart(instance, { resync: true });
+    if (running) await supervisor.restart(instance, { resync: true });
     return { ...stored, resyncTriggered: running };
   });
 
@@ -320,9 +344,45 @@ export async function createApp() {
       "X-Accel-Buffering": "no", // keep reverse proxies from buffering the stream
     });
 
-    const send = (event, payload) => {
-      reply.raw.write(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`);
+    let closed = false;
+    /** Detach everything this connection holds. Safe to call more than once. */
+    const teardown = () => {
+      if (closed) return;
+      closed = true;
+      clearInterval(heartbeat);
+      supervisor.events.off("log", onLog);
+      supervisor.events.off("state", onState);
     };
+
+    /**
+     * Write to the stream, dropping the connection if the client cannot keep up.
+     *
+     * A monitor in verbose mode produces a steady stream of lines. If the
+     * browser stalls, Node buffers the backlog in memory indefinitely, so a
+     * single frozen tab could grow the container's memory until it is killed.
+     * Closing the slow connection is the right answer: the UI reconnects and
+     * refetches the buffered log.
+     *
+     * @param {string} chunk Raw text to write, already in SSE wire format.
+     */
+    const writeChunk = (chunk) => {
+      if (closed) return;
+      const flushed = reply.raw.write(chunk);
+      if (!flushed && reply.raw.writableLength > SSE_BACKPRESSURE_LIMIT_BYTES) {
+        teardown();
+        reply.raw.destroy();
+      }
+    };
+
+    /**
+     * Send one named event.
+     * @param {string} event Event name.
+     * @param {object} payload JSON serialisable payload.
+     */
+    const send = (event, payload) => {
+      writeChunk(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`);
+    };
+
     const onLog = (payload) => send("log", payload);
     const onState = (payload) => send("state", payload);
     supervisor.events.on("log", onLog);
@@ -330,13 +390,12 @@ export async function createApp() {
 
     // Proxies drop idle connections; a comment line keeps the stream warm
     // without showing up as an event in the browser.
-    const heartbeat = setInterval(() => reply.raw.write(": ping\n\n"), 25_000);
+    const heartbeat = setInterval(() => writeChunk(": ping\n\n"), 25_000);
 
-    request.raw.on("close", () => {
-      clearInterval(heartbeat);
-      supervisor.events.off("log", onLog);
-      supervisor.events.off("state", onState);
-    });
+    request.raw.on("close", teardown);
+    // A write to an already dead socket emits an error event. Without a handler
+    // that is an unhandled 'error' on a stream, which takes the process down.
+    reply.raw.on("error", teardown);
   });
 
   return app;

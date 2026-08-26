@@ -153,10 +153,15 @@ test("saving a folder selection triggers the resync the client requires", async 
   const stored = body(await call("GET", "/api/instances/work-business/synclist"));
   assert.equal(stored.text, "/Documents/\n!/Documents/temp*\n");
 
+  // Matching on the station's own "starting with --resync" line would pass even
+  // if the flag never reached the client. This is the client's own output, so
+  // it only appears when the argument actually arrived.
   const resynced = await waitFor(() =>
-    env.supervisor.logs("work-business").some((entry) => entry.line.includes("resync"))
+    env.supervisor
+      .logs("work-business")
+      .some((entry) => entry.line.includes("Performing a database resync"))
   );
-  assert.ok(resynced, "the restarted client performed a resync");
+  assert.ok(resynced, "the restarted client received --resync");
 });
 
 test("diagnostics and the SharePoint lookup run as the signed-in account", async () => {

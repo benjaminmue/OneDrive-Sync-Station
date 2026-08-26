@@ -15,13 +15,15 @@ export const FAKE_CLIENT = fileURLToPath(new URL("./fixtures/fake-onedrive.mjs",
 
 /**
  * Point the station at a fresh temporary environment and load its modules.
+ * @param {{clientBin?: string}} [opts] Override the client binary, for example
+ *   with a path that cannot be executed, to exercise spawn failures.
  * @returns {Promise<{root: string, cleanup: () => void, config: object, instances: object, supervisor: object, onedrive: object, authflow: object, synclist: object, validate: object}>} Loaded modules and the temp root.
  */
-export async function bootstrap() {
+export async function bootstrap(opts = {}) {
   const root = mkdtempSync(join(tmpdir(), "odss-test-"));
   process.env.CONFIG_DIR = join(root, "config");
   process.env.DATA_DIR = join(root, "data");
-  process.env.ONEDRIVE_BIN = FAKE_CLIENT;
+  process.env.ONEDRIVE_BIN = opts.clientBin ?? FAKE_CLIENT;
 
   const config = await import("../src/config.js");
   config.ensureDirs();

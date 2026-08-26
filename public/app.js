@@ -948,7 +948,10 @@ function appendLogLine(payload) {
   const pre = document.querySelector(`pre.log-view[data-instance="${CSS.escape(payload.id)}"]`);
   if (!pre) return;
   const count = Number(pre.dataset.count || "0");
-  const line = `${logTimestamp()}  ${payload.line.trimEnd()}`;
+  // The station stamps each line in the container's timezone, the same stamp
+  // the buffered log carries, so live and fetched lines line up. The local
+  // fallback only matters if an older station omits it.
+  const line = `${payload.ts || logTimestamp()}  ${payload.line.trimEnd()}`;
   if (count === 0) {
     pre.textContent = line; // replaces the "no lines yet" placeholder
   } else {

@@ -4,14 +4,23 @@
 // gated behind a password of its own. LAN-only by design; do not expose this to
 // the internet without a reverse proxy that adds its own authentication.
 
-import { scryptSync, randomBytes, timingSafeEqual } from "node:crypto";
+import { scrypt, scryptSync, randomBytes, timingSafeEqual } from "node:crypto";
+import { promisify } from "node:util";
 import { loadSettings, saveSettings } from "./config.js";
+
+const scryptAsync = promisify(scrypt);
 
 const SESSION_COOKIE = "odss_session";
 const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 30;
+const SESSION_MAX_AGE_MS = SESSION_MAX_AGE_SECONDS * 1000;
 
 /**
  * Hash a password with a fresh random salt.
+ *
+ * Synchronous by design: this runs on the two paths that set a password, both
+ * of which are one-off actions, and doing it synchronously keeps the callers
+ * simple. The hot path, verification, is asynchronous.
+ *
  * @param {string} password Plain text password.
  * @returns {string} Encoded hash in the form `scrypt$<salt>$<derived>`.
  */
@@ -23,15 +32,22 @@ export function hashPassword(password) {
 
 /**
  * Verify a password against a stored hash in constant time.
+ *
+ * Asynchronous on purpose: scrypt is deliberately expensive, and the sign-in
+ * route is reachable without a session. A synchronous hash there would let
+ * anyone on the network stall the whole event loop, and with it every API call,
+ * every log stream and the container health check, simply by posting passwords
+ * in a loop.
+ *
  * @param {string} password Plain text candidate.
  * @param {string|null} stored Encoded hash produced by hashPassword.
- * @returns {boolean} True when the password matches.
+ * @returns {Promise<boolean>} True when the password matches.
  */
-export function verifyPassword(password, stored) {
+export async function verifyPassword(password, stored) {
   if (!stored) return false;
   const [scheme, salt, expected] = stored.split("$");
   if (scheme !== "scrypt" || !salt || !expected) return false;
-  const derived = scryptSync(password, salt, 64);
+  const derived = await scryptAsync(String(password ?? ""), salt, 64);
   const expectedBuf = Buffer.from(expected, "hex");
   if (derived.length !== expectedBuf.length) return false;
   return timingSafeEqual(derived, expectedBuf);
@@ -49,9 +65,28 @@ export function getCookieSecret() {
   return secret;
 }
 
-// In-memory session store. A single container instance needs no shared store;
-// sessions simply drop on restart and the user logs in again.
-const sessions = new Set();
+// In-memory session store, id to expiry timestamp. A single container instance
+// needs no shared store; sessions simply drop on restart and the user signs in
+// again. The expiry is tracked server side on purpose: the cookie's maxAge is
+// only a hint to the browser, so without this a stolen cookie would stay valid
+// until the container restarts.
+/** @type {Map<string, number>} */
+const sessions = new Map();
+
+/**
+ * Drop sessions whose expiry has passed.
+ *
+ * Called on every session check, which is cheap for the handful of sessions a
+ * self-hosted station sees and keeps the map from growing without bound as
+ * browsers come and go.
+ * @returns {void}
+ */
+function pruneSessions() {
+  const now = Date.now();
+  for (const [id, expiresAt] of sessions) {
+    if (expiresAt <= now) sessions.delete(id);
+  }
+}
 
 /**
  * Start a session and set the signed session cookie.
@@ -59,8 +94,9 @@ const sessions = new Set();
  * @returns {string} The new session id.
  */
 export function createSession(reply) {
+  pruneSessions();
   const id = randomBytes(24).toString("hex");
-  sessions.add(id);
+  sessions.set(id, Date.now() + SESSION_MAX_AGE_MS);
   reply.setCookie(SESSION_COOKIE, id, {
     path: "/",
     httpOnly: true,
@@ -96,7 +132,14 @@ export function isAuthed(request, reply) {
   const raw = request.cookies[SESSION_COOKIE];
   if (!raw) return false;
   const unsigned = reply.unsignCookie(raw);
-  return unsigned.valid && unsigned.value ? sessions.has(unsigned.value) : false;
+  if (!unsigned.valid || !unsigned.value) return false;
+  const expiresAt = sessions.get(unsigned.value);
+  if (!expiresAt) return false;
+  if (expiresAt <= Date.now()) {
+    sessions.delete(unsigned.value);
+    return false;
+  }
+  return true;
 }
 
 /**

@@ -18,6 +18,7 @@ import {
   instanceConfDir,
   instanceDataDir,
 } from "./config.js";
+import { writeFileAtomic, readJsonFile } from "./storage.js";
 import * as validate from "./validate.js";
 import { ValidationError } from "./validate.js";
 
@@ -45,23 +46,29 @@ const DEFAULT_OPTIONS = {
 let cache = null;
 
 /**
- * Read the registry from disk, tolerating a missing or corrupt file.
+ * Read the registry from disk.
+ *
+ * A missing file is a fresh install. A corrupt one is refused rather than
+ * treated as empty: an empty registry looks like "no accounts configured", so
+ * the user would create them again while the old config directories, sign-ins
+ * and item databases stay behind unreferenced.
+ *
  * @returns {{instances: object[]}} The registry contents.
+ * @throws {Error} When the registry exists but cannot be parsed.
  */
 function loadRegistry() {
   if (cache) return cache;
-  let stored = { instances: [] };
-  if (existsSync(REGISTRY_FILE)) {
-    try {
-      const parsed = JSON.parse(readFileSync(REGISTRY_FILE, "utf8"));
-      if (Array.isArray(parsed?.instances)) stored = parsed;
-    } catch {
-      // A corrupt registry must not take the station down. Starting from an
-      // empty list keeps the UI reachable; the config directories on disk are
-      // untouched and can be re-registered.
-      stored = { instances: [] };
-    }
+  const result = readJsonFile(REGISTRY_FILE);
+  if (result.status === "corrupt") {
+    throw new Error(
+      `${REGISTRY_FILE} exists but is not valid JSON (${result.error.message}). ` +
+        "Refusing to continue with an empty account list. Restore the file from a " +
+        "backup, or delete it to start over (the synced data is not affected)."
+    );
   }
+  const stored = result.status === "ok" && Array.isArray(result.data?.instances)
+    ? result.data
+    : { instances: [] };
   cache = stored;
   return cache;
 }
@@ -73,7 +80,7 @@ function loadRegistry() {
  */
 function saveRegistry(registry) {
   cache = registry;
-  writeFileSync(REGISTRY_FILE, JSON.stringify(registry, null, 2), { mode: 0o600 });
+  writeFileAtomic(REGISTRY_FILE, JSON.stringify(registry, null, 2), { mode: 0o600 });
 }
 
 /**
@@ -232,7 +239,11 @@ export function createInstance(input) {
     updatedAt: now,
   };
 
-  mkdirSync(instanceConfDir(id), { recursive: true });
+  // 0700 on the config directory: the client writes its refresh token and its
+  // item database (a full listing of every file in the account) in here, under
+  // the container's umask, which on Unraid is deliberately group-writable for
+  // the data share. That default must not reach this directory.
+  mkdirSync(instanceConfDir(id), { recursive: true, mode: 0o700 });
   mkdirSync(instanceDataDir(folder), { recursive: true });
   writeClientConfig(instance);
 
@@ -342,8 +353,8 @@ export function writeClientConfig(instance) {
     "\n";
 
   const dir = instanceConfDir(instance.id);
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, "config"), contents, { mode: 0o600 });
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  writeFileAtomic(join(dir, "config"), contents, { mode: 0o600 });
   return contents;
 }
 

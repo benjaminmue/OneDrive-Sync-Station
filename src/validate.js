@@ -189,7 +189,12 @@ const SYNC_LIST_MAX_LINES = 2000;
  * @returns {string} The normalised text with LF line endings and no trailing blank lines.
  */
 export function syncListText(value) {
-  const str = typeof value === "string" ? value : "";
+  // Anything that is not a string is refused rather than coerced. Coercing to
+  // "" would read as "the user cleared the list", which removes the file, and
+  // no sync_list means "sync everything": a malformed request would silently
+  // turn a selective sync into a full download of the entire account.
+  if (typeof value !== "string") throw new ValidationError("syncList", "required");
+  const str = value;
   if (Buffer.byteLength(str, "utf8") > SYNC_LIST_MAX_BYTES) {
     throw new ValidationError("syncList", "too-large");
   }

@@ -9,7 +9,8 @@
 //                          the shares stay browsable without any station
 //                          metadata mixed in.
 
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
+import { mkdirSync, existsSync } from "node:fs";
+import { writeFileAtomic, readJsonFile } from "./storage.js";
 import { join, resolve, sep } from "node:path";
 
 export const CONFIG_DIR = process.env.CONFIG_DIR || "/config";
@@ -28,6 +29,7 @@ const SETTINGS_FILE = join(CONFIG_DIR, "settings.json");
 const DEFAULTS = {
   guiPasswordHash: null, // scrypt hash; null means first-run setup is pending
   cookieSecret: null, // generated once, then persisted
+  adminPasswordFingerprint: null, // digest of the ADMIN_PASSWORD already applied
 };
 
 let cache = null;
@@ -43,22 +45,28 @@ export function ensureDirs() {
 }
 
 /**
- * Load station settings, falling back to defaults when the file is missing or
- * corrupt. Corrupt settings must not brick the station: the user can then set a
- * new password through the first-run screen.
+ * Load station settings.
+ *
+ * A missing file is a fresh install and yields the defaults, which puts the UI
+ * into first-run mode. A corrupt file is refused instead: first-run mode lets
+ * anyone who can reach the port set a new password, and with it reach every
+ * synced account, so silently falling back to defaults would turn a damaged
+ * file into an unauthenticated takeover.
+ *
  * @returns {object} The effective settings.
+ * @throws {Error} When the settings file exists but cannot be parsed.
  */
 export function loadSettings() {
   if (cache) return cache;
-  let stored = {};
-  if (existsSync(SETTINGS_FILE)) {
-    try {
-      stored = JSON.parse(readFileSync(SETTINGS_FILE, "utf8"));
-    } catch {
-      stored = {};
-    }
+  const result = readJsonFile(SETTINGS_FILE);
+  if (result.status === "corrupt") {
+    throw new Error(
+      `${SETTINGS_FILE} exists but is not valid JSON (${result.error.message}). ` +
+        "Refusing to start in first-run mode, which would let anyone set a new password. " +
+        "Restore the file from a backup, or delete it to start over."
+    );
   }
-  cache = { ...DEFAULTS, ...stored };
+  cache = { ...DEFAULTS, ...(result.status === "ok" ? result.data : {}) };
   return cache;
 }
 
@@ -70,8 +78,8 @@ export function loadSettings() {
 export function saveSettings(patch) {
   const next = { ...loadSettings(), ...patch };
   cache = next;
-  // 0600: the file holds the GUI password hash and the cookie secret.
-  writeFileSync(SETTINGS_FILE, JSON.stringify(next, null, 2), { mode: 0o600 });
+  // 0600: the file holds the web UI password hash and the cookie secret.
+  writeFileAtomic(SETTINGS_FILE, JSON.stringify(next, null, 2), { mode: 0o600 });
   return next;
 }
 

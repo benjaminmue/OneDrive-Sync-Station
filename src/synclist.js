@@ -5,9 +5,10 @@
 // edits it, we validate and write it, and the caller triggers the resync the
 // client requires after every change.
 
-import { readFileSync, writeFileSync, existsSync, rmSync } from "node:fs";
+import { readFileSync, existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { instanceConfDir } from "./config.js";
+import { writeFileAtomic } from "./storage.js";
 import * as validate from "./validate.js";
 
 const FILE_NAME = "sync_list";
@@ -59,6 +60,9 @@ export function write(instance, text) {
     return { exists: false, text: "" };
   }
 
-  writeFileSync(file, normalised, { mode: 0o600 });
+  // Atomic: a truncated sync_list is still syntactically valid, it just selects
+  // fewer folders, and the resync that follows would remove the local copies of
+  // everything that dropped out.
+  writeFileAtomic(file, normalised, { mode: 0o600 });
   return { exists: true, text: normalised };
 }

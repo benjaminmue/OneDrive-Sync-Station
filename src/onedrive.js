@@ -57,7 +57,9 @@ export function baseArgs(instance) {
  * @returns {{command: string, args: string[]}} Command and arguments to spawn.
  */
 export function clientCommand(args) {
-  if (/\.m?js$/i.test(ONEDRIVE_BIN)) {
+  // Gated on the environment: in a production container the client is always a
+  // real binary, and this branch has no business being reachable there.
+  if (process.env.NODE_ENV !== "production" && /\.m?js$/i.test(ONEDRIVE_BIN)) {
     return { command: process.execPath, args: [ONEDRIVE_BIN, ...args] };
   }
   return { command: ONEDRIVE_BIN, args };
@@ -78,17 +80,31 @@ export async function run(args, opts = {}) {
     });
     return { ok: true, text: `${stdout || ""}${stderr || ""}`.trim() };
   } catch (err) {
-    const text = `${err.stdout || ""}${err.stderr || ""}`.trim() || err.message;
-    return { ok: false, text };
+    // Only the client's own output is passed on. err.message would be
+    // "Command failed: onedrive --confdir /config/instances/... --syncdir ...",
+    // which puts host paths and the full command line in front of the user for
+    // no diagnostic gain.
+    const text = `${err.stdout || ""}${err.stderr || ""}`.trim();
+    return { ok: false, text: text || `the client failed (${err.code ?? "no exit code"})` };
   }
 }
 
+/** Cached result of `--version`; it can only change when the image changes. */
+let versionCache = null;
+
 /**
  * Client version string, also used as the installation check.
+ *
+ * The result is cached for the lifetime of the process. This is read by the
+ * unauthenticated state endpoint, and without the cache every anonymous request
+ * would spawn a client process, which is a cheap way for anyone on the network
+ * to exhaust the container's process limit.
+ *
  * @returns {Promise<{ok: boolean, text: string}>} Version output.
  */
-export function version() {
-  return run(["--version"]);
+export async function version() {
+  if (!versionCache) versionCache = await run(["--version"]);
+  return versionCache;
 }
 
 /**

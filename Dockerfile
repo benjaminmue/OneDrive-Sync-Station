@@ -7,9 +7,14 @@
 # sqlite, so the runtime has to be the same release for the ABI to match.
 
 ARG ONEDRIVE_VERSION=v2.5.11
+# The commit the tag pointed at when it was pinned. A git tag can be moved, so
+# the tag alone does not make the build reproducible; the checkout is verified
+# against this commit and the build fails if upstream ever re-points it.
+ARG ONEDRIVE_COMMIT=0b7299adb170d789d27d517963bc65fb04e0bd63
 
 FROM debian:trixie AS client-build
 ARG ONEDRIVE_VERSION
+ARG ONEDRIVE_COMMIT
 
 # libdbus-1-dev is not optional: the client's configure script enables dbus
 # support unconditionally on Linux and fails without it. The container never
@@ -29,6 +34,12 @@ RUN apt-get update \
 WORKDIR /build
 RUN git clone --depth 1 --branch "${ONEDRIVE_VERSION}" \
       https://github.com/abraunegg/onedrive.git . \
+  && actual="$(git rev-parse HEAD)" \
+  && if [ "${actual}" != "${ONEDRIVE_COMMIT}" ]; then \
+       echo "Tag ${ONEDRIVE_VERSION} points at ${actual}, expected ${ONEDRIVE_COMMIT}." >&2; \
+       echo "Upstream moved the tag. Review the change, then update ONEDRIVE_COMMIT." >&2; \
+       exit 1; \
+     fi \
   && ./configure \
   && make clean \
   && make \
@@ -56,8 +67,10 @@ COPY --from=client-build /usr/local/bin/onedrive /usr/local/bin/onedrive
 # Fail the build rather than the first sync if a runtime library is missing.
 RUN onedrive --version
 
-COPY package.json package-lock.json* ./
-RUN npm install --omit=dev && npm cache clean --force
+# No glob on the lock file, and `npm ci` rather than `npm install`: both would
+# otherwise let the image resolve versions that were never committed.
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev && npm cache clean --force
 
 COPY src ./src
 COPY public ./public
@@ -82,7 +95,12 @@ ENV CONFIG_DIR=/config \
 VOLUME ["/config", "/data"]
 EXPOSE 8080
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+# A generous start period on purpose: the first start may have to take ownership
+# of an existing data share, and a recursive chown across a large Unraid array
+# can take a long while. A short window would mark the container unhealthy mid
+# pass, and a restart would begin the same work again from the top.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15m --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:'+(process.env.WEBUI_PORT||8080)+'/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
 ENTRYPOINT ["docker-entrypoint.sh"]
+CMD ["node", "src/server.js"]

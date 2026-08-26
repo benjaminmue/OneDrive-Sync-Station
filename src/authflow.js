@@ -27,6 +27,24 @@ import { ValidationError } from "./validate.js";
 import { log } from "./logger.js";
 
 /**
+ * Failure of the sign-in handshake itself, as opposed to bad user input.
+ *
+ * Carries a status code so the API reports it as a client-visible problem with
+ * the client's own output attached, instead of collapsing into a generic 500
+ * that tells the user nothing about why the sign-in never started.
+ */
+export class AuthFlowError extends Error {
+  /**
+   * @param {string} message Human readable explanation, including client output.
+   */
+  constructor(message) {
+    super(message);
+    this.name = "AuthFlowError";
+    this.statusCode = 502;
+  }
+}
+
+/**
  * Command that carries the sign-in.
  *
  * The handshake needs an action that actually reaches Microsoft, otherwise the
@@ -45,16 +63,19 @@ const SIGN_IN_TIMEOUT_MS = 15 * 60_000;
 /** How long the client may take to redeem the code once the response arrives. */
 const REDEEM_TIMEOUT_MS = 120_000;
 
+/** How long a killed client may take to disappear before we stop waiting. */
+const KILL_TIMEOUT_MS = 5_000;
+
 const POLL_INTERVAL_MS = 250;
 
 /**
  * @typedef {object} PendingAuth
  * @property {import("node:child_process").ChildProcess} child The waiting client.
- * @property {string} authUrl The URL the user has to open.
+ * @property {string|null} authUrl The URL the user has to open, once known.
  * @property {string} urlFile Path of the file the client wrote the URL to.
  * @property {string} responseFile Path of the file the client waits for.
  * @property {ReturnType<typeof createRingBuffer>} output Client output, for diagnostics.
- * @property {NodeJS.Timeout} timeout Abandons the attempt when the user never returns.
+ * @property {NodeJS.Timeout|null} timeout Abandons the attempt when the user never returns.
  * @property {Promise<{code: number|null, signal: string|null}>} exited Resolves when the client exits.
  */
 
@@ -94,11 +115,13 @@ function withDeadline(promise, ms) {
  * Wait until a file exists and has content.
  * @param {string} file Path to watch.
  * @param {number} timeoutMs Maximum time to wait.
- * @returns {Promise<string|null>} File contents, or null on timeout.
+ * @param {() => boolean} stillWanted Abort early when this returns false.
+ * @returns {Promise<string|null>} File contents, or null on timeout or abort.
  */
-async function waitForFile(file, timeoutMs) {
+async function waitForFile(file, timeoutMs, stillWanted) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
+    if (!stillWanted()) return null;
     if (existsSync(file)) {
       const contents = readFileSync(file, "utf8").trim();
       if (contents) return contents;
@@ -109,14 +132,25 @@ async function waitForFile(file, timeoutMs) {
 }
 
 /**
- * Remove the handshake files of an instance.
- * @param {string} urlFile Path of the URL file.
- * @param {string} responseFile Path of the response file.
+ * Remove the handshake files of an attempt.
+ * @param {PendingAuth} attempt The attempt whose files to remove.
  * @returns {void}
  */
-function clearFiles(urlFile, responseFile) {
-  rmSync(urlFile, { force: true });
-  rmSync(responseFile, { force: true });
+function clearFiles(attempt) {
+  rmSync(attempt.urlFile, { force: true });
+  rmSync(attempt.responseFile, { force: true });
+}
+
+/**
+ * Collect the client output of an attempt as text.
+ * @param {PendingAuth} attempt The attempt to read.
+ * @returns {string} The output, newline separated.
+ */
+function outputText(attempt) {
+  return attempt.output
+    .list()
+    .map((entry) => entry.line)
+    .join("\n");
 }
 
 /**
@@ -131,7 +165,7 @@ export function isPending(id) {
 /**
  * The authorisation URL of a pending sign-in, if any.
  * @param {string} id Instance id.
- * @returns {string|null} The URL or null.
+ * @returns {string|null} The URL, or null when there is none yet.
  */
 export function pendingUrl(id) {
   return pending.get(id)?.authUrl ?? null;
@@ -140,21 +174,22 @@ export function pendingUrl(id) {
 /**
  * Start a sign-in and return the URL the user has to open.
  *
- * The caller must make sure the monitor process of this instance is stopped:
- * two clients sharing one config directory would race over the same token
- * files. The API layer enforces that before calling in.
+ * The caller must make sure the monitor process of this instance has actually
+ * stopped: two clients sharing one config directory would race over the same
+ * item database and token files.
  *
  * @param {object} instance Instance record.
  * @returns {Promise<{authUrl: string}>} The authorisation URL.
- * @throws {Error} When the client never produced a URL.
+ * @throws {AuthFlowError} When the client never produced a URL, or the attempt was superseded.
  */
 export async function begin(instance) {
-  cancel(instance.id);
+  await cancel(instance.id);
 
   mkdirSync(AUTH_DIR, { recursive: true });
   const urlFile = join(AUTH_DIR, `${instance.id}.url`);
   const responseFile = join(AUTH_DIR, `${instance.id}.response`);
-  clearFiles(urlFile, responseFile);
+  rmSync(urlFile, { force: true });
+  rmSync(responseFile, { force: true });
 
   const args = [
     ...baseArgs(instance),
@@ -172,25 +207,45 @@ export async function begin(instance) {
   child.stderr.on("data", (chunk) => output.push(chunk));
 
   const exited = new Promise((resolve) => {
-    child.on("exit", (code, signal) => resolve({ code, signal }));
+    // 'exit' never fires when the spawn itself failed, so 'close' is the event
+    // that is guaranteed to arrive in both cases.
+    child.on("close", (code, signal) => resolve({ code, signal }));
   });
 
-  const authUrl = await waitForFile(urlFile, URL_WAIT_MS);
-  if (!authUrl) {
+  /** @type {PendingAuth} */
+  const attempt = { child, authUrl: null, urlFile, responseFile, output, timeout: null, exited };
+
+  // Registered before the first await: a second begin() for the same instance
+  // (a double click, a UI retry) must be able to find and kill this attempt.
+  // Registering only after the URL arrived would leave an orphan client holding
+  // the config directory, still polling for a response file, ready to complete
+  // a sign-in the user believes they cancelled.
+  pending.set(instance.id, attempt);
+
+  const authUrl = await waitForFile(urlFile, URL_WAIT_MS, () => pending.get(instance.id) === attempt);
+
+  if (pending.get(instance.id) !== attempt) {
+    // Someone started a newer attempt, or cancelled this one, while we waited.
     child.kill("SIGKILL");
-    clearFiles(urlFile, responseFile);
-    const details = output
-      .list()
-      .map((entry) => entry.line)
-      .join("\n");
-    throw new Error(`client did not produce an authorisation URL. Output:\n${details}`);
+    throw new AuthFlowError("the sign-in was superseded by a newer attempt");
   }
 
-  // Abandon the attempt if the user never comes back, so a forgotten browser
-  // tab does not leave a client process waiting forever.
-  const timeout = setTimeout(() => cancel(instance.id), SIGN_IN_TIMEOUT_MS);
+  if (!authUrl) {
+    child.kill("SIGKILL");
+    clearFiles(attempt);
+    pending.delete(instance.id);
+    throw new AuthFlowError(
+      `the client did not produce an authorisation URL.\n${outputText(attempt)}`
+    );
+  }
 
-  pending.set(instance.id, { child, authUrl, urlFile, responseFile, output, timeout, exited });
+  attempt.authUrl = authUrl;
+  // Abandon the attempt if the user never comes back, so a forgotten browser
+  // tab does not leave a client process holding the config directory forever.
+  attempt.timeout = setTimeout(() => {
+    cancel(instance.id).catch(() => {});
+  }, SIGN_IN_TIMEOUT_MS);
+
   log.info("sign-in started", { instance: instance.id });
   return { authUrl };
 }
@@ -204,7 +259,7 @@ export async function begin(instance) {
  */
 export async function complete(instance, responseUrl) {
   const attempt = pending.get(instance.id);
-  if (!attempt) throw new ValidationError("responseUrl", "no-pending-sign-in");
+  if (!attempt || !attempt.authUrl) throw new ValidationError("responseUrl", "no-pending-sign-in");
 
   const url = validate.authResponseUrl(responseUrl);
   writeFileSync(attempt.responseFile, url + "\n", { mode: 0o600 });
@@ -213,18 +268,17 @@ export async function complete(instance, responseUrl) {
   // exit is what tells us whether the sign-in actually succeeded.
   const result = await withDeadline(attempt.exited, REDEEM_TIMEOUT_MS);
 
-  clearTimeout(attempt.timeout);
-  clearFiles(attempt.urlFile, attempt.responseFile);
-  pending.delete(instance.id);
+  if (attempt.timeout) clearTimeout(attempt.timeout);
+  clearFiles(attempt);
+  // Only drop the registration if it is still ours: a cancel that raced with us
+  // may already have replaced it.
+  if (pending.get(instance.id) === attempt) pending.delete(instance.id);
 
-  const text = attempt.output
-    .list()
-    .map((entry) => entry.line)
-    .join("\n");
+  const text = outputText(attempt);
 
   if (result === null) {
     attempt.child.kill("SIGKILL");
-    return { ok: false, text: `${text}\n[station] client did not finish in time` };
+    return { ok: false, text: `${text}\n[station] the client did not finish in time` };
   }
 
   const ok = result.code === 0;
@@ -233,16 +287,25 @@ export async function complete(instance, responseUrl) {
 }
 
 /**
- * Abort a pending sign-in and clean up after it.
+ * Abort a pending sign-in and wait until its client is gone.
+ *
+ * Awaiting the exit matters: callers cancel a sign-in right before deleting the
+ * instance's config directory, and a client still running against a deleted
+ * directory would keep writing into nowhere.
+ *
  * @param {string} id Instance id.
- * @returns {void}
+ * @returns {Promise<void>} Resolves once no sign-in client of this instance runs.
  */
-export function cancel(id) {
+export async function cancel(id) {
   const attempt = pending.get(id);
   if (!attempt) return;
-  clearTimeout(attempt.timeout);
-  attempt.child.kill("SIGKILL");
-  clearFiles(attempt.urlFile, attempt.responseFile);
+
+  // Deregister first: the begin() that owns this attempt polls the registration
+  // and stops as soon as it is no longer the current one.
   pending.delete(id);
+  if (attempt.timeout) clearTimeout(attempt.timeout);
+  attempt.child.kill("SIGKILL");
+  await withDeadline(attempt.exited, KILL_TIMEOUT_MS);
+  clearFiles(attempt);
   log.info("sign-in cancelled", { instance: id });
 }
