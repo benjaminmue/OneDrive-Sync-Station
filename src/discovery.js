@@ -14,6 +14,7 @@
 import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { join } from "node:path";
+import { existsSync, renameSync, rmSync } from "node:fs";
 import { baseArgs, clientCommand } from "./onedrive.js";
 import { instanceConfDir } from "./config.js";
 import { writeFileAtomic } from "./storage.js";
@@ -22,6 +23,48 @@ import { log } from "./logger.js";
 
 /** Where a completed run leaves the folders it found. */
 export const DISCOVERED_FILE = "discovered-folders.json";
+
+/**
+ * The folder selection is moved aside for the duration of a run.
+ *
+ * Without this the run sees only what the selection already includes, which is
+ * useless: the whole point of listing the folders is to show the ones that are
+ * NOT selected yet, so they can be added. The file is restored when the run
+ * ends, and a leftover from a crash is restored on the next attempt.
+ */
+const SELECTION_FILE = "sync_list";
+const SELECTION_PARKED = "sync_list.discovery-backup";
+
+/**
+ * Move the folder selection out of the client's way, if there is one.
+ * @param {string} confDir Config directory of the instance.
+ * @returns {boolean} True when a selection was parked and must be restored.
+ */
+function parkSelection(confDir) {
+  const active = join(confDir, SELECTION_FILE);
+  const parked = join(confDir, SELECTION_PARKED);
+  // A leftover from an interrupted run wins: it is the real selection.
+  if (existsSync(parked) && !existsSync(active)) {
+    renameSync(parked, active);
+  }
+  if (!existsSync(active)) return false;
+  rmSync(parked, { force: true });
+  renameSync(active, parked);
+  return true;
+}
+
+/**
+ * Put the folder selection back.
+ * @param {string} confDir Config directory of the instance.
+ * @returns {void}
+ */
+function restoreSelection(confDir) {
+  const active = join(confDir, SELECTION_FILE);
+  const parked = join(confDir, SELECTION_PARKED);
+  if (!existsSync(parked)) return;
+  rmSync(active, { force: true });
+  renameSync(parked, active);
+}
 
 /**
  * Folder paths the client mentions while walking the account.
@@ -100,6 +143,11 @@ export function status(id) {
 export function start(instance) {
   if (running.has(instance.id)) return { started: false };
 
+  // Run without the folder selection, otherwise the listing shows only what is
+  // already selected and the folders the user might want to add stay invisible.
+  const confDir = instanceConfDir(instance.id);
+  const parkedSelection = parkSelection(confDir);
+
   // --dry-run makes the client report instead of transfer, and it keeps its
   // findings in a separate database, so nothing about the real sync state
   // changes. --resync is required alongside it here because the configuration
@@ -125,6 +173,7 @@ export function start(instance) {
     if (!run || run.child !== child) return;
     clearTimeout(run.timeout);
     running.delete(instance.id);
+    if (parkedSelection) restoreSelection(confDir);
 
     // Written even on a partial run: half a listing is still better than none,
     // and the user can start the discovery again.

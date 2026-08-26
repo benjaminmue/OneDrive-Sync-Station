@@ -391,9 +391,24 @@ export async function createApp() {
     if (!instances.isAuthenticated(instance)) {
       return reply.code(409).send({ error: "not-authenticated" });
     }
-    // A sync client and a discovery run would hold the same config directory.
+
+    // A sync client and a discovery run cannot share a config directory, so a
+    // running account is paused for the duration. It resumes on its own when
+    // the run ends, because the alternative is refusing to refresh the list of
+    // a working account, which is when people most want to add a folder.
+    const wasRunning = supervisor.status(instance.id).running;
     await supervisor.stop(instance.id);
-    return discovery.start(instance);
+    const started = discovery.start(instance);
+
+    if (wasRunning) {
+      const resume = ({ id, running: stillRunning }) => {
+        if (id !== instance.id || stillRunning) return;
+        discovery.events.off("discovery", resume);
+        supervisor.start(instances.requireInstance(instance.id));
+      };
+      discovery.events.on("discovery", resume);
+    }
+    return { ...started, resumesAfter: wasRunning };
   });
 
   app.post("/api/instances/:id/discover/stop", async (request) => {

@@ -225,8 +225,9 @@ export const en = {
     "after a resync that has not finished, and for an account whose drive is " +
     "empty. Reload once the sync has run.",
   "picker.sourceLocal":
-    "Listing the folders that are already on this server. Folders you have never " +
-    "synced are not in here yet; add those as a rule by hand.",
+    "Listing the folders that are already on this server, which is only what the " +
+    "current selection covers. Use Reload list to fetch the full list from " +
+    "Microsoft.",
   "setup.needed": "Choose what to sync before the first sync starts",
   "setup.needsHint":
     "Nothing has been downloaded yet. This account syncs everything unless you " +
@@ -1767,7 +1768,10 @@ function buildFolderPicker(id, textarea) {
     // list is fetched from Microsoft again. Not while a client is running,
     // though: its own item cache is then the fresher source, and a second
     // client on the same config directory is not allowed in any case.
-    if (account && !account.runtime?.running && !account.discovering) {
+    // Also while the account is running: its item cache only knows the folders
+    // the selection already includes, so it cannot show what could be added.
+    // The account is paused for the run and resumes by itself.
+    if (account && !account.discovering) {
       reload.disabled = true;
       body.replaceChildren(el("p", { text: t("picker.discovering"), className: "hint" }));
       try {
