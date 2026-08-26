@@ -49,17 +49,34 @@ after(async () => {
   env.cleanup();
 });
 
-test("the prompt is parsed out of the client output", async () => {
+test("the prompt is taken from the client output, never guessed", async () => {
   const { parseDeviceCodePrompt } = await import("../src/authflow.js");
   const parsed = parseDeviceCodePrompt(
-    "Authorise this application by visiting:\nhttps://microsoft.com/devicelogin\n" +
-      "Enter the following code when prompted: ABCD-1234\n"
+    [
+      "Please authorise this application by visiting the following URL:",
+      "https://login.microsoft.com/device",
+      "Enter the following code when prompted: ABCD-1234",
+      "This code expires at: 2026-Aug-26 20:49:38",
+    ].join("\n")
   );
   assert.equal(parsed.userCode, "ABCD-1234");
-  assert.equal(parsed.verificationUrl, "https://microsoft.com/devicelogin");
+  assert.equal(parsed.expiresAt, "2026-Aug-26 20:49:38");
+
+  // The endpoint has to be the one the client named. Microsoft runs separate
+  // device endpoints for personal and work accounts, and entering a code at
+  // the wrong one is reported to the user as an expired code, on a code that
+  // was issued seconds earlier.
+  assert.equal(parsed.verificationUrl, "https://login.microsoft.com/device");
   assert.equal(parseDeviceCodePrompt("nothing useful here"), null);
 });
 
+test("a code without its URL is not shown next to an invented one", async () => {
+  const { parseDeviceCodePrompt } = await import("../src/authflow.js");
+  // Half the output has arrived. A guessed address would send the user to a
+  // page where their perfectly valid code cannot be redeemed.
+  assert.equal(parseDeviceCodePrompt("Enter the following code when prompted: A-1"), null);
+});
+ 
 test("starting a device sign-in returns the code and enables the option", async () => {
   const res = await call("POST", "/api/instances/device-account/signin/begin", {
     useDeviceAuth: true,
@@ -68,7 +85,9 @@ test("starting a device sign-in returns the code and enables the option", async 
   const started = body(res);
   assert.equal(started.mode, "device");
   assert.equal(started.userCode, "FAKE-CODE-123");
-  assert.match(started.verificationUrl, /devicelogin/);
+  // Exactly the endpoint the client named, not merely something that looks
+  // like a device login page.
+  assert.equal(started.verificationUrl, "https://login.microsoft.com/device");
 
   // The client reads the flow from its config file, so choosing it in the UI
   // has to end up written there, not just held in memory.

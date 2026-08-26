@@ -83,11 +83,28 @@ const POLL_INTERVAL_MS = 250;
 export function parseDeviceCodePrompt(text) {
   const codeMatch = String(text).match(/Enter the following code when prompted:\s*(\S+)/i);
   if (!codeMatch) return null;
-  // The client prints the URL Microsoft supplied, on a line of its own.
-  const urlMatch = String(text).match(/https:\/\/\S*(?:devicelogin|deviceauth)\S*/i);
+  // The URL is taken from the line the client points at, never guessed.
+  // Microsoft runs several device endpoints (login.microsoft.com/device and
+  // microsoft.com/devicelogin among them) and a code issued for one is refused
+  // by the others, reported to the user as "the code has expired". Falling back
+  // to a plausible looking default therefore sends people to a page where their
+  // perfectly valid code cannot work.
+  const urlMatch =
+    String(text).match(/visiting the following URL:\s*\r?\n\s*(https:\/\/\S+)/i) ||
+    String(text).match(/^\s*(https:\/\/\S*(?:device|auth)\S*)\s*$/im);
+  // Microsoft decides how long a code lives and the client prints it. Showing
+  // that beats letting the user guess whether the code in front of them is
+  // still good: a rejected code and an expired one look identical otherwise.
+  const expiryMatch = String(text).match(/This code expires at:\s*(.+?)\s*$/im);
+  // Without a URL there is nothing usable to show: the code alone cannot be
+  // entered anywhere. Returning null makes the caller wait for more output
+  // rather than presenting a guess.
+  if (!urlMatch) return null;
+
   return {
-    verificationUrl: urlMatch ? urlMatch[0].replace(/[.,]$/, "") : "https://microsoft.com/devicelogin",
+    verificationUrl: urlMatch[1].replace(/[.,]$/, ""),
     userCode: codeMatch[1],
+    expiresAt: expiryMatch ? expiryMatch[1] : null,
   };
 }
 

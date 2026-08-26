@@ -93,9 +93,13 @@ if (has("--auth-files")) {
 // the part of the user confirming.
 if (process.env.FAKE_DEVICE_AUTH === "1" && has("--display-quota") && !has("--auth-files")) {
   const confirmFile = join(confDir || ".", ".device-confirmed");
-  process.stdout.write("Authorise this application by visiting:\n");
-  process.stdout.write("https://microsoft.com/devicelogin\n");
+  // Wording and endpoint copied from the real client. It matters which one:
+  // Microsoft runs separate device endpoints for personal and work accounts,
+  // and a code issued for one is rejected by the other as "expired".
+  process.stdout.write("Please authorise this application by visiting the following URL:\n");
+  process.stdout.write("https://login.microsoft.com/device\n");
   process.stdout.write("Enter the following code when prompted: FAKE-CODE-123\n");
+  process.stdout.write("This code expires at: 2026-Aug-26 20:49:38\n");
 
   if (process.env.FAKE_DEVICE_REFUSED === "1") {
     process.stdout.write("ERROR: this tenant does not allow the device code flow\n");
