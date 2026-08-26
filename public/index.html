@@ -3,118 +3,205 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
     <title>OneDrive Sync Station</title>
     <link rel="icon" href="logo.svg" />
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <header>
+    <!--
+      Static skeleton only. Every user-facing string is (re)applied from the
+      string table in app.js via the data-i18n attributes, so a second language
+      only needs a second table. Everything dynamic is built with createElement
+      and textContent in app.js, no API value ever becomes markup.
+    -->
+    <a class="skip-link" href="#main" data-i18n="app.skipToContent">Skip to content</a>
+
+    <header class="topbar">
       <img class="logo" src="logo.svg" alt="" />
-      <h1>OneDrive Sync Station</h1>
-      <span class="meta" id="meta"></span>
+      <h1 data-i18n="app.title">OneDrive Sync Station</h1>
+      <span class="topbar-meta" id="meta"></span>
+      <span class="live" id="live" hidden>
+        <span class="live-dot" aria-hidden="true"></span>
+        <span id="live-label"></span>
+      </span>
     </header>
 
-    <main>
-      <!-- First run: no password configured yet. -->
-      <section class="card hidden" id="view-setup">
-        <h2>Set a web UI password</h2>
-        <p class="hint">
-          This UI can sign in to Microsoft accounts and reaches every synced file, so it is
-          password protected. At least 8 characters.
+    <main id="main">
+      <!-- First run: no web UI password configured yet. -->
+      <section class="card auth-card" id="view-setup" hidden>
+        <h2 data-i18n="setup.title">Set a web UI password</h2>
+        <p class="hint" data-i18n="setup.hint">
+          This UI can sign in to Microsoft accounts and reaches every synced file,
+          so it is password protected. At least 8 characters.
         </p>
-        <label for="setup-password">Password</label>
-        <input type="password" id="setup-password" autocomplete="new-password" />
-        <label for="setup-password-repeat">Repeat password</label>
-        <input type="password" id="setup-password-repeat" autocomplete="new-password" />
-        <div class="row" style="margin-top: 16px">
-          <button class="primary" id="setup-submit">Save password</button>
-        </div>
-        <div class="msg hidden" id="setup-msg"></div>
+        <form id="setup-form">
+          <label for="setup-password" data-i18n="setup.password">Password</label>
+          <input type="password" id="setup-password" autocomplete="new-password" required minlength="8" />
+          <label for="setup-password-repeat" data-i18n="setup.repeat">Repeat password</label>
+          <input type="password" id="setup-password-repeat" autocomplete="new-password" required />
+          <div class="form-actions">
+            <button type="submit" class="primary" data-i18n="setup.submit">Save password</button>
+          </div>
+          <p class="msg" id="setup-msg" hidden></p>
+        </form>
       </section>
 
       <!-- Returning user. -->
-      <section class="card hidden" id="view-login">
-        <h2>Sign in</h2>
-        <label for="login-password">Password</label>
-        <input type="password" id="login-password" autocomplete="current-password" />
-        <div class="row" style="margin-top: 16px">
-          <button class="primary" id="login-submit">Sign in</button>
-        </div>
-        <div class="msg hidden" id="login-msg"></div>
+      <section class="card auth-card" id="view-login" hidden>
+        <h2 data-i18n="login.title">Sign in</h2>
+        <form id="login-form">
+          <label for="login-password" data-i18n="login.password">Password</label>
+          <input type="password" id="login-password" autocomplete="current-password" required />
+          <div class="form-actions">
+            <button type="submit" class="primary" data-i18n="login.submit">Sign in</button>
+          </div>
+          <p class="msg" id="login-msg" hidden></p>
+        </form>
       </section>
 
       <!-- Main application. -->
-      <div class="hidden" id="view-main">
+      <div id="view-main" hidden>
         <section class="card">
-          <h2>Accounts</h2>
-          <p class="hint" id="accounts-hint">Loading…</p>
-          <div id="instances"></div>
-        </section>
-
-        <section class="card">
-          <h2>Add an account</h2>
-          <p class="hint">
-            Each account gets its own folder below the data volume and its own sign-in.
-            A SharePoint document library counts as an account of its own.
-          </p>
-          <div class="grid">
-            <div>
-              <label for="new-name">Display name</label>
-              <input type="text" id="new-name" placeholder="Work business" />
-            </div>
-            <div>
-              <label for="new-type">Type</label>
-              <select id="new-type">
-                <option value="personal">OneDrive Personal</option>
-                <option value="business">OneDrive Business</option>
-                <option value="sharepoint">SharePoint library</option>
-              </select>
-            </div>
+          <div class="section-head">
+            <h2 data-i18n="accounts.title">Accounts</h2>
+            <span class="count" id="accounts-count"></span>
+            <button type="button" class="primary slim" id="add-toggle" aria-expanded="false"
+                    aria-controls="add-card" data-i18n="accounts.add">Add account</button>
           </div>
-          <div id="new-sharepoint" class="hidden">
-            <label for="new-drive-id">Drive ID</label>
-            <input type="text" id="new-drive-id" placeholder="b!…" />
-            <p class="hint" style="margin-top: 6px">
-              Look it up below once a business account is signed in.
+
+          <!--
+            Fresh install: teach the three steps instead of showing an empty box.
+            Shown/hidden by app.js depending on the account count.
+          -->
+          <div class="empty" id="empty-state" hidden>
+            <h3 data-i18n="empty.title">No accounts yet</h3>
+            <p class="hint" data-i18n="empty.intro">
+              An account is one OneDrive Personal, one OneDrive Business or one
+              SharePoint document library. Each gets its own folder below the data
+              volume and syncs independently. Three steps:
             </p>
+            <ol class="steps">
+              <li>
+                <strong data-i18n="empty.step1Title">Add the account.</strong>
+                <span data-i18n="empty.step1Text">A display name and the type are enough.</span>
+              </li>
+              <li>
+                <strong data-i18n="empty.step2Title">Sign in to Microsoft.</strong>
+                <span data-i18n="empty.step2Text">
+                  The station shows a Microsoft link. You sign in on Microsoft's own
+                  pages and paste one URL back, your password never touches this UI.
+                </span>
+              </li>
+              <li>
+                <strong data-i18n="empty.step3Title">Watch it sync.</strong>
+                <span data-i18n="empty.step3Text">
+                  Syncing starts on its own. The log streams live, and the Folders
+                  editor limits what is synced if you do not want everything.
+                </span>
+              </li>
+            </ol>
+            <div class="form-actions">
+              <button type="button" class="primary" id="empty-add" data-i18n="empty.add">
+                Add your first account
+              </button>
+            </div>
           </div>
-          <div class="row" style="margin-top: 16px">
-            <button class="primary" id="new-submit">Create account</button>
-          </div>
-          <div class="msg hidden" id="new-msg"></div>
+
+          <div class="stack" id="instances"></div>
         </section>
 
-        <section class="card">
-          <h2>SharePoint lookup</h2>
-          <p class="hint">
-            Queries the document libraries of a site with the credentials of a signed-in
-            account, and returns the drive ID needed above.
+        <!-- Add-account form, collapsed behind the toolbar button above. -->
+        <section class="card" id="add-card" hidden>
+          <h2 data-i18n="add.title">Add an account</h2>
+          <p class="hint" data-i18n="add.hint">
+            Each account gets its own folder below the data volume and its own
+            sign-in. A SharePoint document library counts as an account of its own.
           </p>
-          <div class="grid">
-            <div>
-              <label for="sp-instance">Signed-in account</label>
-              <select id="sp-instance"></select>
+          <form id="add-form">
+            <div class="grid2">
+              <div>
+                <label for="add-name" data-i18n="add.name">Display name</label>
+                <input type="text" id="add-name" maxlength="64" required
+                       data-i18n-placeholder="add.namePlaceholder" placeholder="Work business" />
+              </div>
+              <div>
+                <label for="add-type" data-i18n="add.type">Type</label>
+                <select id="add-type">
+                  <option value="personal" data-i18n="type.personalLong">OneDrive Personal</option>
+                  <option value="business" data-i18n="type.businessLong">OneDrive Business</option>
+                  <option value="sharepoint" data-i18n="type.sharepointLong">SharePoint library</option>
+                </select>
+              </div>
             </div>
-            <div>
-              <label for="sp-site">Site name or URL</label>
-              <input type="text" id="sp-site" placeholder="Marketing" />
+
+            <!-- Only relevant for type=sharepoint; toggled by app.js. -->
+            <div id="add-sharepoint" hidden>
+              <label for="add-drive-id" data-i18n="add.driveId">Drive ID</label>
+              <input type="text" id="add-drive-id" spellcheck="false" placeholder="b!…" />
+
+              <div class="lookup">
+                <h3 data-i18n="lookup.title">Find the drive ID</h3>
+                <p class="hint" data-i18n="lookup.hint">
+                  Queries the document libraries of a site with the credentials of an
+                  account that is already signed in, usually a business account of
+                  the same tenant. Click a result to fill in its drive ID.
+                </p>
+                <div class="grid2">
+                  <div>
+                    <label for="lookup-source" data-i18n="lookup.source">Signed-in account</label>
+                    <select id="lookup-source"></select>
+                  </div>
+                  <div>
+                    <label for="lookup-site" data-i18n="lookup.site">Site name or URL</label>
+                    <input type="text" id="lookup-site"
+                           data-i18n-placeholder="lookup.sitePlaceholder" placeholder="Marketing" />
+                  </div>
+                </div>
+                <div class="form-actions">
+                  <button type="button" id="lookup-run" data-i18n="lookup.run">Look up</button>
+                </div>
+                <p class="msg" id="lookup-msg" hidden></p>
+                <div class="stack-sm" id="lookup-results"></div>
+                <pre class="output" id="lookup-raw" tabindex="0" hidden></pre>
+              </div>
             </div>
-          </div>
-          <div class="row" style="margin-top: 16px">
-            <button id="sp-submit">Look up</button>
-          </div>
-          <div class="msg hidden" id="sp-msg"></div>
-          <pre class="log hidden" id="sp-out"></pre>
+
+            <div class="form-actions">
+              <button type="submit" class="primary" data-i18n="add.submit">Create account</button>
+              <button type="button" id="add-cancel" data-i18n="common.cancel">Cancel</button>
+            </div>
+            <p class="msg" id="add-msg" hidden></p>
+          </form>
         </section>
 
-        <section class="card">
-          <h2>Session</h2>
-          <div class="row">
-            <button id="logout">Sign out of the web UI</button>
+        <!-- Web UI session housekeeping. -->
+        <section class="card" id="session-card">
+          <h2 data-i18n="session.title">Web UI session</h2>
+          <details id="pw-details">
+            <summary data-i18n="session.changePassword">Change the web UI password</summary>
+            <form id="pw-form">
+              <label for="pw-current" data-i18n="session.currentPassword">Current password</label>
+              <input type="password" id="pw-current" autocomplete="current-password" required />
+              <label for="pw-new" data-i18n="session.newPassword">New password</label>
+              <input type="password" id="pw-new" autocomplete="new-password" required minlength="8" />
+              <label for="pw-repeat" data-i18n="session.repeatPassword">Repeat new password</label>
+              <input type="password" id="pw-repeat" autocomplete="new-password" required />
+              <div class="form-actions">
+                <button type="submit" class="primary" data-i18n="session.changeSubmit">Change password</button>
+              </div>
+              <p class="msg" id="pw-msg" hidden></p>
+            </form>
+          </details>
+          <div class="form-actions">
+            <button type="button" id="logout" data-i18n="session.logout">Sign out of the web UI</button>
           </div>
         </section>
       </div>
     </main>
+
+    <!-- Transient status messages; polite so screen readers announce them. -->
+    <div class="toasts" id="toasts" aria-live="polite"></div>
 
     <script type="module" src="app.js"></script>
   </body>
