@@ -29,6 +29,7 @@ export const en = {
   "app.title": "OneDrive Sync Station",
   "app.skipToContent": "Skip to content",
   "app.metaClient": "client {version}",
+  "app.metaBuild": "build {ref}",
   "app.unreachable": "Could not reach the station: {error}",
   "app.live": "live",
   "app.reconnecting": "reconnecting…",
