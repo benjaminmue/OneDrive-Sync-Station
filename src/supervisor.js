@@ -64,6 +64,7 @@ const STOP_GRACE_MS = 15_000;
  * @property {{code: number|null, signal: string|null, at: number}|null} lastExit Last exit info.
  * @property {boolean} resyncPending Whether the next start must add --resync.
  * @property {boolean} resyncRecoveryUsed Whether the one-shot resync recovery was already spent.
+ * @property {boolean} stopRequested Whether this supervisor asked the client to stop.
  * @property {Array<() => void>} exitWaiters Resolvers waiting for the process to be gone.
  * @property {ReturnType<typeof createRingBuffer>} buffer Recent client output.
  */
@@ -90,6 +91,7 @@ function runnerFor(id) {
       lastExit: null,
       resyncPending: false,
       resyncRecoveryUsed: false,
+      stopRequested: false,
       exitWaiters: [],
       buffer: createRingBuffer(400),
     };
@@ -235,7 +237,14 @@ function handleGone(instance, code, signal, opts) {
 
   state.child = null;
   state.intentionalRestart = false;
-  state.lastExit = { code, signal, at: Date.now(), spawnFailed: Boolean(opts.spawnFailed) };
+  state.lastExit = {
+    code,
+    signal,
+    at: Date.now(),
+    spawnFailed: Boolean(opts.spawnFailed),
+    requested: state.stopRequested,
+  };
+  state.stopRequested = false;
   clearTimer(state, "killTimer");
   releaseExitWaiters(state);
 
@@ -309,6 +318,10 @@ function handleGone(instance, code, signal, opts) {
 function signalStop(state, id) {
   const child = state.child;
   if (!child) return;
+  // Recorded so the exit can be told apart from a crash. The client handles
+  // SIGINT itself and then exits with code 130, so the exit looks like an
+  // ordinary non-zero code and cannot be recognised by the code alone.
+  state.stopRequested = true;
   child.kill("SIGINT");
   clearTimer(state, "killTimer");
   state.killTimer = setTimeout(() => {

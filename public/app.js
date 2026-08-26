@@ -200,6 +200,10 @@ export const en = {
   "picker.unreadable":
     "The folder list could not be read. The rules below still work.",
   "picker.truncated": "Only part of the list is shown, this account has a lot of folders.",
+  "picker.empty":
+    "The client knows no folders for this account yet. That is expected right " +
+    "after a resync that has not finished, and for an account whose drive is " +
+    "empty. Reload once the sync has run.",
   "picker.reload": "Reload list",
   "picker.expand": "Expand",
   "picker.collapse": "Collapse",
@@ -213,8 +217,11 @@ export const en = {
   "folders.example": "Example:",
   "folders.warn":
     "Saving restarts this account with --resync, which the client requires after " +
-    "every change. That re-reads the account state from Microsoft, it does not " +
-    "delete local files.",
+    "every change.",
+  "folders.warnRemoval":
+    "Anything you remove from the selection is also removed from this server on " +
+    "the next sync. Those files stay in OneDrive, but their local copies under " +
+    "the data path are deleted. Use Dry run first to see what would happen.",
   "folders.save": "Save and resync",
   "folders.dryRun": "Dry run",
   "folders.dryRunHint": "Preview what the current rules would sync, without changing anything.",
@@ -683,7 +690,14 @@ function statusFor(instance) {
   // Stopped. A non-zero exit code deserves a visible note: the user may not
   // know why syncing ended. Signal exits are excluded because a manual stop
   // terminates the client with a signal, which is not an error.
-  const crashed = rt.lastExit && typeof rt.lastExit.code === "number" && rt.lastExit.code !== 0;
+  // The station records whether it asked for the stop. Judging by exit code
+  // alone would not work: the client handles SIGINT itself and exits with 130,
+  // which is indistinguishable from a genuine failure from the outside.
+  const crashed =
+    rt.lastExit &&
+    !rt.lastExit.requested &&
+    typeof rt.lastExit.code === "number" &&
+    rt.lastExit.code !== 0;
   return {
     cls: "neutral",
     label: t("status.stopped"),
@@ -1264,7 +1278,10 @@ async function openFoldersPanel(card, id) {
   // rule is never silently overwritten by a checkbox.
   panel.append(buildFolderPicker(id, textarea));
   panel.append(textarea);
-  panel.append(el("p", { text: t("folders.warn"), className: "warn" }));
+  panel.append(
+    el("p", { text: t("folders.warn"), className: "warn" }),
+    el("p", { text: t("folders.warnRemoval"), className: "warn" })
+  );
 
   const msg = el("p", { className: "msg", attrs: { hidden: "" } });
   const out = el("pre", { className: "output", attrs: { hidden: "", tabindex: "0" } });
@@ -1403,6 +1420,12 @@ function buildFolderPicker(id, textarea) {
         body.replaceChildren(
           el("p", { text: t(reasons[res.reason] || "picker.unreadable"), className: "hint" })
         );
+        return;
+      }
+      if (!res.folders.length) {
+        // A readable but empty list is not the same as an error, and silently
+        // rendering nothing leaves the user staring at a blank box.
+        body.replaceChildren(el("p", { text: t("picker.empty"), className: "hint" }));
         return;
       }
       const parts = [buildFolderLevel(res.folders, textarea)];
