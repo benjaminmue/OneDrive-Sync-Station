@@ -94,6 +94,8 @@ export const en = {
   "status.starting": "Starting…",
   "status.retrying": "Failing",
   "status.stopped": "Stopped",
+  "status.discovering": "Reading folders",
+  "status.signingIn": "Waiting for sign-in",
   "status.up": "up {duration}",
   "status.resyncQueued": "resync queued",
   "status.exitCode": "exit code {code}",
@@ -788,8 +790,19 @@ function formatExit(lastExit) {
  */
 function statusFor(instance) {
   const rt = instance.runtime;
+
+  // Work in progress outranks everything below, because the client process is
+  // stopped during a discovery run and during a sign-in: reporting "Stopped"
+  // while the card itself says it is fetching the folder list is the one
+  // reading that is plainly wrong.
+  if (instance.signInPending) {
+    return { cls: "busy", label: t("status.signingIn"), alert: null, busy: true };
+  }
   if (!instance.authenticated) {
     return { cls: "warn", label: t("status.notSignedIn"), alert: null };
+  }
+  if (instance.discovering) {
+    return { cls: "busy", label: t("status.discovering"), alert: null, busy: true };
   }
   if (rt.running) {
     const up = formatDuration(Date.now() - rt.startedAt);
@@ -807,7 +820,7 @@ function statusFor(instance) {
     };
   }
   if (rt.wantRunning) {
-    return { cls: "info", label: t("status.starting"), alert: null };
+    return { cls: "info", label: t("status.starting"), alert: null, busy: true };
   }
   // Stopped. A non-zero exit code deserves a visible note: the user may not
   // know why syncing ended. Signal exits are excluded because a manual stop
@@ -849,7 +862,12 @@ function updateSummary(card, instance) {
   );
   const pill = el(
     "span",
-    { className: `pill ${status.cls}` },
+    {
+      className: `pill ${status.cls}${status.busy ? " busy-anim" : ""}`,
+      // Screen readers get told the region updates on its own, rather than the
+      // animation carrying the whole message.
+      attrs: status.busy ? { "aria-live": "polite" } : {},
+    },
     el("span", { className: "pill-dot", attrs: { "aria-hidden": "true" } }),
     el("span", { text: status.label })
   );

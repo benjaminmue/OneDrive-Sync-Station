@@ -188,6 +188,8 @@ export async function createApp() {
       ...instances.describeInstance(instance),
       runtime: supervisor.status(instance.id),
       discovering: discovery.isRunning(instance.id),
+      // The card shows a waiting state for it, so the list has to carry it too.
+      signInPending: authflow.isPending(instance.id),
       // Lets the card offer the next step rather than repeating the previous one.
       foldersKnown: foldertree.readFolderTree(instance).available,
     }))

@@ -8,6 +8,16 @@ Every published image carries a version. The header of the web UI shows it
 together with the commit the image was built from, so it is always possible to
 tell which build is running.
 
+## [0.4.0] - 2026-08-27
+
+### Added
+
+- Accounts show a pulsing "in progress" state while a discovery run or a sign-in
+  is under way. Both stop the client process, so the card used to read "Stopped"
+  directly above a line saying the folder list was being fetched. The animation
+  is dropped for readers who ask for reduced motion, where the state is marked
+  by a steady ring instead.
+
 ## [0.3.0] - 2026-08-27
 
 ### Fixed
