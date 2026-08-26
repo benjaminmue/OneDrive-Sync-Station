@@ -180,6 +180,21 @@ the variable again. The old password is replaced and all sessions are dropped.
 - The station never sees your Microsoft password: you sign in on Microsoft's
   pages and only the resulting authorisation code passes through the UI.
 
+## Releasing
+
+Every published image gets a version. The header of the web UI shows it next to
+the commit the image was built from, which is the only reliable way to tell
+whether an update has taken effect.
+
+```bash
+npm run release:patch   # fixes
+npm run release:minor   # new capabilities
+```
+
+Then commit, merge into `beta` to publish `:beta`, or tag `vX.Y.Z` to publish
+`:latest`. The publish workflow runs the tests first and refuses to build if
+they fail.
+
 ## Development
 
 ```bash

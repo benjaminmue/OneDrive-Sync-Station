@@ -4,31 +4,62 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+Every published image carries a version. The header of the web UI shows it
+together with the commit the image was built from, so it is always possible to
+tell which build is running.
+
+## [0.2.0] - 2026-08-26
+
+First version exercised against real Microsoft accounts. A personal account and
+a business account were synced end to end on Unraid: sign-in, folder selection,
+download, upload and deletion in both directions.
 
 ### Added
 
-- Proof of concept: multiple OneDrive Personal, Business and SharePoint accounts
-  in one container, each with its own client process, config directory and data
-  folder.
-- Browser driven Microsoft sign-in through the client's `--auth-files`
-  handshake. No client secret and, for most tenants, no app registration of your
-  own.
-- Per-account folder selection through the client's `sync_list`, with a dry-run
-  preview and the resync the client requires after a change.
-- SharePoint drive ID lookup using the credentials of an account that is already
-  signed in.
-- Live client logs over server-sent events.
-- Password protected web UI with an `ADMIN_PASSWORD` recovery path.
-- Container image with the OneDrive Client for Linux built from source at a
-  pinned release tag.
+- Folder list to tick, instead of typing `sync_list` rules by hand. It is read
+  from what the client already knows, from what a discovery run reported, and
+  from what is on disk, because none of those sources sees the whole account by
+  itself.
+- Discovery run: looks at an account and downloads nothing. Started
+  automatically after a sign-in, so the folder choice arrives with the list
+  already in hand.
+- Sign-in with a device code for business and SharePoint accounts.
+- Sync interval configurable per account.
+- Report of local files the folder selection leaves unprotected. They are never
+  uploaded, and nothing else in the interface would say so.
+- Build stamp in the header, next to the version.
 
-### Known limitations
+### Changed
 
-- Not yet exercised against real Microsoft accounts; the test suite drives a
-  stub client.
-- The folder selection is a rule editor. A browsable folder tree via Microsoft
-  Graph is planned, pending a check on how a second consumer of the refresh
-  token affects the running client.
-- `linux/amd64` only. Building the D client for arm64 under emulation is not
-  practical, and the target platform is Unraid.
+- Syncing no longer starts by itself after a sign-in. The account waits for an
+  explicit Start, so a large account cannot pull gigabytes before the folder
+  selection is even on screen.
+- The sign-in panel quotes Microsoft's phishing warning and explains it, since
+  the warning is alarming, the page redirects itself within seconds, and the
+  address is only recoverable from the browser history afterwards.
+- The log view hides the "skipped path" lines a selection produces on every run
+  and holds far more lines, so a resync no longer buries everything readable.
+
+### Fixed
+
+- The client's resync demand (exit 126) is granted automatically instead of
+  being treated as a crash. It occurs after every configuration change and after
+  the first sign-in, and it put healthy accounts into a growing backoff.
+- The device code pointed at the wrong Microsoft endpoint, which rejected
+  perfectly fresh codes as expired.
+- Device sign-in is no longer offered to personal accounts: Microsoft blocks
+  that flow for them, and reports the refusal as an expired code.
+- A sign-in in progress survives the panel closing; reopening shows the same
+  code instead of silently requesting a new one and invalidating it.
+- Copy buttons work over plain http, where the clipboard API does not exist.
+- Folder selection ticks match the rules in the editor.
+- Numerous lifecycle defects found in review: a failed spawn wedging an account
+  permanently, a cancelled sign-in leaving a client running, two clients able to
+  share one config directory, and a corrupt settings file opening the station to
+  anyone on the network.
+
+## [0.1.0] - 2026-08-26
+
+Proof of concept: multiple OneDrive Personal, Business and SharePoint accounts
+in one container, with a password protected web UI, verified against a stubbed
+client.
