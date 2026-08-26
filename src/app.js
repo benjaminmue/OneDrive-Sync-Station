@@ -236,6 +236,17 @@ export async function createApp() {
     // The flow is a stored option rather than a request parameter, because the
     // client reads it from its config file: the two have to agree, and the
     // config is written when the option changes.
+    // An attempt that is already waiting is handed back as it is. Starting a
+    // second one would invalidate the device code the user is typing, or the
+    // authorisation page they have open, and both failures look to them like
+    // the station is broken rather than like a second request.
+    const existing = authflow.attemptState(instance);
+    if (existing.pending) {
+      return existing.mode === "device"
+        ? { mode: "device", resumed: true, ...existing.devicePrompt }
+        : { mode: "redirect", resumed: true, authUrl: existing.authUrl };
+    }
+
     const wantDevice = validate.boolean(request.body?.useDeviceAuth);
     if (wantDevice !== Boolean(instance.options.useDeviceAuth)) {
       instances.updateInstance(instance.id, { options: { useDeviceAuth: wantDevice } });

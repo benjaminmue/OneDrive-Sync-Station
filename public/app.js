@@ -34,6 +34,10 @@ export const en = {
   "app.reconnecting": "reconnecting…",
 
   "common.cancel": "Cancel",
+  "signin.abort": "Cancel sign-in",
+  "signin.resumed":
+    "A sign-in is already waiting for this account. Use the code below; asking " +
+    "for a new one would make this one invalid.",
   "common.close": "Close",
   "common.working": "Working…",
   "common.copyFailed":
@@ -884,10 +888,10 @@ function toggleButton(card, name, label, className, open) {
  * @param {object} card Card handle.
  */
 function closePanel(card) {
-  if (card.open === "signin") {
-    const id = card.root.dataset.id;
-    api(`/api/instances/${id}/signin/cancel`, { method: "POST" }).catch(() => {});
-  }
+  // A sign-in in progress is deliberately NOT cancelled here. The card is
+  // rebuilt on every status change, so the panel can close without the user
+  // meaning to, and cancelling would invalidate a device code they are in the
+  // middle of typing at Microsoft. Only the explicit Cancel button aborts.
   card.open = null;
   card.panels.replaceChildren();
   syncToggles(card);
@@ -938,6 +942,29 @@ async function openSignInPanel(card, id) {
   openPanel(card, "signin", panel);
 
   const body = el("div");
+
+  // An attempt may already be waiting, for instance because the card was
+  // rebuilt while the user was at Microsoft. Reopening must show that same
+  // attempt: starting a new one would silently replace the code they are about
+  // to type, and Microsoft rejects the previous one the moment it is replaced.
+  try {
+    const state = await api(`/api/instances/${id}/signin/state`);
+    if (state.pending && state.mode === "device" && state.devicePrompt) {
+      panel.append(body);
+      await showDevicePrompt(card, id, body, state.devicePrompt);
+      return;
+    }
+    if (state.pending && state.mode === "redirect") {
+      // The redirect flow has nothing to poll; the user still has to paste the
+      // address, so the form is rebuilt around the attempt already running.
+      panel.append(body);
+      await runRedirectSignIn(card, id, body, { resume: true });
+      return;
+    }
+  } catch {
+    // No state to resume: fall through to the chooser.
+  }
+
   panel.append(buildMethodChooser(card, id, body), body);
 }
 
@@ -1021,8 +1048,23 @@ async function runDeviceSignIn(card, id, body) {
     body: { useDeviceAuth: true },
   });
   if (card.open !== "signin") return; // toggled away while we waited
+  await showDevicePrompt(card, id, body, started);
+}
 
-  const { verificationUrl, userCode } = started;
+/**
+ * Render the device code and wait for the client to finish.
+ *
+ * Separate from starting the flow so that reopening the panel can show an
+ * attempt that is already running, with the code the user was given, instead of
+ * requesting a fresh one and invalidating theirs.
+ *
+ * @param {HTMLElement} card Instance card.
+ * @param {string} id Instance id.
+ * @param {HTMLElement} body Container to render into.
+ * @param {{verificationUrl: string, userCode: string}} prompt What to show.
+ */
+async function showDevicePrompt(card, id, body, prompt) {
+  const { verificationUrl, userCode } = prompt;
   const steps = el("ol", { className: "signin-steps" });
 
   const openLink = el("a", {
@@ -1057,8 +1099,13 @@ async function runDeviceSignIn(card, id, body) {
   );
 
   const status = el("p", { text: t("signin.deviceWaiting"), className: "hint", attrs: { "aria-live": "polite" } });
-  const cancel = el("button", { text: t("common.cancel"), attrs: { type: "button" } });
-  cancel.addEventListener("click", () => closePanel(card));
+  const cancel = el("button", { text: t("signin.abort"), attrs: { type: "button" } });
+  cancel.addEventListener("click", async () => {
+    // The only place a sign-in is thrown away on purpose.
+    await api(`/api/instances/${id}/signin/cancel`, { method: "POST" }).catch(() => {});
+    closePanel(card);
+    scheduleRefresh();
+  });
 
   body.replaceChildren(steps, status, el("div", { className: "form-actions" }, cancel));
 
@@ -1091,11 +1138,16 @@ async function runDeviceSignIn(card, id, body) {
  * @param {string} id Instance id.
  * @param {HTMLElement} body Container to render into.
  */
-async function runRedirectSignIn(card, id, body) {
-  const { authUrl } = await api(`/api/instances/${id}/signin/begin`, {
-    method: "POST",
-    body: { useDeviceAuth: false },
-  });
+async function runRedirectSignIn(card, id, body, opts = {}) {
+  // On resume the attempt is already running and its URL is known; asking to
+  // begin again would replace it and invalidate the page the user has open.
+  const started = opts.resume
+    ? await api(`/api/instances/${id}/signin/state`)
+    : await api(`/api/instances/${id}/signin/begin`, {
+        method: "POST",
+        body: { useDeviceAuth: false },
+      });
+  const authUrl = started.authUrl || started.devicePrompt?.verificationUrl || "";
   if (card.open !== "signin") return;
 
   const steps = el("ol", { className: "signin-steps" });

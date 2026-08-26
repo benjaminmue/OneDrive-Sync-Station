@@ -103,3 +103,25 @@ test("the account is signed in once the user confirms at Microsoft", async () =>
   const listed = body(await call("GET", "/api/instances"));
   assert.equal(listed[0].authenticated, true);
 });
+
+test("a second begin returns the waiting attempt instead of a new code", async () => {
+  await call("POST", "/api/instances", { name: "Resume Me", type: "personal" });
+  const first = body(await call("POST", "/api/instances/resume-me/signin/begin", {
+    useDeviceAuth: true,
+  }));
+
+  // Reopening the panel, or a card rebuilt by a status change, must not replace
+  // the code: Microsoft invalidates the previous one the moment a new one is
+  // requested, and the user is typing that previous one.
+  const second = body(await call("POST", "/api/instances/resume-me/signin/begin", {
+    useDeviceAuth: true,
+  }));
+  assert.equal(second.userCode, first.userCode);
+  assert.equal(second.resumed, true);
+
+  const state = body(await call("GET", "/api/instances/resume-me/signin/state"));
+  assert.equal(state.pending, true);
+  assert.equal(state.devicePrompt.userCode, first.userCode);
+
+  await call("POST", "/api/instances/resume-me/signin/cancel");
+});

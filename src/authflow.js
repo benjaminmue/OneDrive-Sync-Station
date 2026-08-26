@@ -413,6 +413,7 @@ export function attemptState(instance) {
     pending: true,
     mode: attempt.mode,
     devicePrompt: attempt.devicePrompt,
+    authUrl: attempt.authUrl,
     output: outputText(attempt),
   };
 }
