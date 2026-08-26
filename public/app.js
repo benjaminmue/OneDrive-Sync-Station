@@ -196,6 +196,13 @@ export const en = {
   "logs.hint": "Streams live while the sync client runs. Scroll up to pause following.",
   "logs.empty": "No log lines yet.",
   "logs.jump": "Jump to latest",
+  "logs.hideSkips": "Hide skipped paths",
+  "logs.hideSkipsHint":
+    "A sync with a folder selection reports every remote item it leaves alone. " +
+    "That is normal, and on a large account it buries everything else, so those " +
+    "lines are hidden by default. Files on this server that are being left " +
+    "behind are never hidden.",
+  "logs.hidden": "{n} skipped-path lines hidden",
   "logs.label": "Log of {name}",
 
   "picker.title": "Your folders",
@@ -1337,6 +1344,21 @@ const LOG_KEEP = 2000;
  * @param {object} card Card handle.
  * @param {string} id Instance id.
  */
+/**
+ * Whether a log line is a remote item the folder selection deliberately skips.
+ *
+ * These dominate every sync that uses a selection: one line per excluded item,
+ * repeated on each run, well over a hundred on a modest account. They are
+ * correct and almost never interesting. Lines about local files being left
+ * behind are deliberately not matched, because those are the ones that matter.
+ *
+ * @param {string} line A log line.
+ * @returns {boolean} True when the line is skip noise.
+ */
+function isSkipNoise(line) {
+  return line.includes("Skipping path - ");
+}
+
 async function openLogPanel(card, id) {
   const name = model.get(id)?.name || id;
   const pre = el("pre", {
@@ -1367,15 +1389,46 @@ async function openLogPanel(card, id) {
     el("p", { text: t("logs.hint"), className: "hint" }),
     el("div", { className: "log-wrap" }, pre, jump)
   );
+  const hideBox = el("input", { attrs: { type: "checkbox", id: `hide-skips-${id}` } });
+  hideBox.checked = true;
+  const hiddenNote = el("p", { className: "hint" });
+
+  panel.append(
+    el(
+      "label",
+      { className: "check", attrs: { for: `hide-skips-${id}`, title: t("logs.hideSkipsHint") } },
+      hideBox,
+      el("span", { text: t("logs.hideSkips") })
+    ),
+    hiddenNote
+  );
   openPanel(card, "logs", panel);
 
   const { lines } = await api(`/api/instances/${id}/logs`);
   if (card.open !== "logs") return;
-  pre.textContent = lines.length
-    ? lines.map((entry) => `${entry.ts}  ${entry.line}`).join("\n")
-    : t("logs.empty");
-  pre.dataset.count = String(lines.length);
-  pre.scrollTop = pre.scrollHeight;
+
+  /**
+   * Fill the view from the buffered lines, honouring the filter.
+   * @param {Array<{ts: string, line: string}>} entries Buffered log lines.
+   */
+  const render = (entries) => {
+    const visible = hideBox.checked ? entries.filter((e) => !isSkipNoise(e.line)) : entries;
+    pre.textContent = visible.length
+      ? visible.map((entry) => `${entry.ts}  ${entry.line}`).join("\n")
+      : t("logs.empty");
+    pre.dataset.count = String(visible.length);
+    const skipped = entries.length - visible.length;
+    hiddenNote.textContent = skipped ? t("logs.hidden", { n: skipped }) : "";
+    pre.scrollTop = pre.scrollHeight;
+  };
+
+  // Recorded on the element so the live stream applies the same rule.
+  pre.dataset.filter = "1";
+  hideBox.addEventListener("change", () => {
+    pre.dataset.filter = hideBox.checked ? "1" : "0";
+    render(lines);
+  });
+  render(lines);
 }
 
 /**
@@ -1402,6 +1455,9 @@ function logTimestamp() {
 function appendLogLine(payload) {
   const pre = document.querySelector(`pre.log-view[data-instance="${CSS.escape(payload.id)}"]`);
   if (!pre) return;
+  // The same rule as the initial fill, so what arrives afterwards matches what
+  // is already on screen.
+  if (pre.dataset.filter === "1" && isSkipNoise(payload.line)) return;
   const count = Number(pre.dataset.count || "0");
   // The station stamps each line in the container's timezone, the same stamp
   // the buffered log carries, so live and fetched lines line up. The local

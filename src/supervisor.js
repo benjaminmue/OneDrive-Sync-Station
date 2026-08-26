@@ -110,7 +110,11 @@ function runnerFor(id) {
       stopRequested: false,
       exitWaiters: [],
       localSkips: new Set(),
-      buffer: createRingBuffer(400),
+      // Deliberately large. One resync of an account with a folder selection
+      // prints a "Skipping path" line per excluded item, well over a hundred on
+      // a modest account, which would push everything worth reading out of a
+      // smaller buffer within seconds.
+      buffer: createRingBuffer(3000),
     };
     runners.set(id, state);
   }
