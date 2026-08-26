@@ -279,6 +279,7 @@ export async function createApp() {
     const result = await authflow.pollDeviceAuth(instance);
     if (!result.done) return { done: false, authenticated: false };
     const authenticated = instances.isAuthenticated(instance);
+    if (authenticated) discovery.start(instance);
     return { ...result, authenticated };
   });
 
@@ -290,8 +291,11 @@ export async function createApp() {
     const instance = instanceFromRequest(request);
     const result = await authflow.complete(instance, request.body?.responseUrl);
     const authenticated = instances.isAuthenticated(instance);
-    // Deliberately not started here: the user chooses folders first. See
-    // setupComplete in instances.js.
+    // Not a sync: a discovery run, which downloads nothing and produces the
+    // folder list. Asking the user to choose before anything is known about the
+    // account is a decision without information, so the station goes and gets
+    // the information first.
+    if (authenticated) discovery.start(instance);
     return { ...result, authenticated };
   });
 

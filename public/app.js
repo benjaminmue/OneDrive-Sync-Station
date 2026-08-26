@@ -223,15 +223,18 @@ export const en = {
   "setup.needsHint":
     "Nothing has been downloaded yet. This account syncs everything unless you " +
     "narrow it down, and on a large account that is a lot of data, so the " +
-    "decision comes first.",
-  "setup.discover": "Look at the folders first",
+    "decision comes first. The folder list is fetched automatically after a " +
+    "sign-in; if it is missing, fetch it again below.",
+  "setup.discover": "Fetch the folder list",
   "setup.discoverThen":
     "Folder list ready. Open Folders, tick what you want, save, then press Start.",
   "setup.discoverHint":
     "Look at the folders first: asks Microsoft what is in this account and " +
     "downloads nothing. Afterwards you pick what to sync. Takes a moment on a " +
     "large account; the log shows the progress.",
-  "setup.discovering": "Looking at the account, nothing is being downloaded...",
+  "setup.discovering":
+    "Reading the folder list from Microsoft. Nothing is being downloaded. The " +
+    "log shows the progress; on a large account this takes a moment.",
   "setup.syncAll": "Sync everything",
   "setup.syncAllHint": "Sync everything: start right away and take the whole account.",
   "setup.chooseFolders": "Choose folders",
