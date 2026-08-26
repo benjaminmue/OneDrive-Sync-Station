@@ -141,8 +141,31 @@ if (has("--display-quota")) {
   process.exit(0);
 }
 
+// The real client checks for an outstanding resync before it runs anything at
+// all, a read-only lookup included, and refuses with exit 126 until one is
+// granted. A marker file lets a test put an account into that state.
+if (
+  has("--get-sharepoint-drive-id") &&
+  confDir &&
+  existsSync(join(confDir, ".needs-resync")) &&
+  !has("--resync")
+) {
+  console.log("Reading configuration file: " + join(confDir, "config"));
+  console.log("Configuration file successfully loaded");
+  console.log("");
+  console.log(
+    "An application configuration change has been detected where a --resync is required"
+  );
+  process.exit(126);
+}
+
 if (has("--get-sharepoint-drive-id")) {
   const site = valueOf("--get-sharepoint-drive-id");
+  // Microsoft hands out a new refresh token whenever one is redeemed, and the
+  // client stores it. That is what the station has to copy back.
+  if (has("--resync") && confDir) {
+    writeFileSync(join(confDir, "refresh_token"), "rotated-refresh-token");
+  }
   process.stdout.write(
     `Library Name = ${site} Documents\ndrive_id = b!FAKEDRIVEID123\n\n` +
       `Library Name = ${site} Archive\ndrive_id = b!FAKEDRIVEID456\n`

@@ -8,6 +8,19 @@ Every published image carries a version. The header of the web UI shows it
 together with the commit the image was built from, so it is always possible to
 tell which build is running.
 
+## [0.2.2] - 2026-08-27
+
+### Fixed
+
+- The SharePoint drive id lookup no longer fails on an account that owes a
+  resync, which is every account that has just been signed in or reconfigured.
+  The client refuses to run anything at all in that state, a read-only lookup
+  included. Granting the resync where the account lives would delete its item
+  database and cost it a full reconciliation, so the lookup is repeated in a
+  throwaway directory that holds nothing but a copy of the token. The token
+  Microsoft rotates in the process is written back, and a running client is
+  restarted so it does not keep using the spent one.
+
 ## [0.2.1] - 2026-08-26
 
 ### Added

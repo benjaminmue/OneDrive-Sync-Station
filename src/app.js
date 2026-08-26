@@ -444,7 +444,16 @@ export async function createApp() {
       return reply.code(409).send({ error: "not-authenticated" });
     }
     const site = validate.remotePath(request.body?.site, "site");
-    return onedrive.getSharePointDriveId(instance, site);
+    const result = await onedrive.getSharePointDriveId(instance, site);
+
+    // The lookup had to run in isolation and Microsoft rotated the refresh
+    // token in the process. A running client is still holding the spent one, so
+    // it is restarted to pick up what was written back.
+    if (result.isolated && supervisor.status(instance.id).running) {
+      await supervisor.restart(instance);
+    }
+
+    return result;
   });
 
   // --- Live updates ---------------------------------------------------------

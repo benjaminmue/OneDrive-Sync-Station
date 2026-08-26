@@ -11,6 +11,15 @@
 
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { join } from "node:path";
 import { instanceConfDir, instanceDataDir } from "./config.js";
 
 const execFileAsync = promisify(execFile);
@@ -25,6 +34,12 @@ const LOCAL_TIMEOUT_MS = 30_000;
 const REMOTE_TIMEOUT_MS = 120_000;
 
 const MAX_OUTPUT_BYTES = 8 * 1024 * 1024;
+
+/** The client's refusal to run while it considers a resync outstanding. */
+const RESYNC_DEMANDED = /resync is required/i;
+
+/** Name the client stores its refresh token under inside a config directory. */
+const TOKEN_FILE = "refresh_token";
 
 /**
  * Arguments every invocation for an instance needs.
@@ -215,8 +230,83 @@ export function parseSharePointDriveIds(text) {
  * @returns {Promise<{ok: boolean, text: string, libraries: Array<{name: string, driveId: string}>}>} Result.
  */
 export async function getSharePointDriveId(instance, siteName) {
-  const res = await run([...baseArgs(instance), "--get-sharepoint-drive-id", siteName], {
+  let isolated = false;
+  let res = await run([...baseArgs(instance), "--get-sharepoint-drive-id", siteName], {
     timeout: REMOTE_TIMEOUT_MS,
   });
-  return { ...res, libraries: res.ok ? parseSharePointDriveIds(res.text) : [] };
+
+  if (!res.ok && RESYNC_DEMANDED.test(res.text)) {
+    const fallback = await lookupInScratchDir(instance, siteName);
+    if (fallback) {
+      res = fallback;
+      isolated = true;
+    }
+  }
+
+  return { ...res, isolated, libraries: res.ok ? parseSharePointDriveIds(res.text) : [] };
+}
+
+/**
+ * Repeat a drive id lookup in a throwaway config directory.
+ *
+ * The client checks for an outstanding resync before it runs anything at all,
+ * this lookup included, and refuses to start until one is granted. Granting it
+ * on the account's own directory is not an option: the same code path deletes
+ * the item database, so asking for a drive id would cost that account a full
+ * reconciliation.
+ *
+ * So the lookup runs somewhere else. The directory holds a copy of the refresh
+ * token and nothing more, which makes the resync free, and it is removed again
+ * afterwards.
+ *
+ * Microsoft rotates refresh tokens on use, so the token the lookup leaves
+ * behind is copied back: the one the account still holds is spent, and without
+ * this the next sign-in attempt would fail with no visible cause.
+ *
+ * @param {object} instance Signed-in instance used for the lookup.
+ * @param {string} siteName Site name or URL, already validated.
+ * @returns {Promise<{ok: boolean, text: string}|null>} Result, or null if there
+ *   is no token to work with.
+ */
+async function lookupInScratchDir(instance, siteName) {
+  const source = instanceConfDir(instance.id);
+  const sourceToken = join(source, TOKEN_FILE);
+  if (!existsSync(sourceToken)) return null;
+
+  const scratch = `${source}.lookup`;
+  const scratchToken = join(scratch, TOKEN_FILE);
+  const scratchData = join(scratch, "data");
+
+  rmSync(scratch, { recursive: true, force: true });
+  mkdirSync(scratchData, { recursive: true, mode: 0o700 });
+
+  try {
+    const before = readFileSync(sourceToken);
+    writeFileSync(scratchToken, before, { mode: 0o600 });
+
+    // No syncdir of the account here either: the client would otherwise fall
+    // back to a default path and create a directory nobody asked for.
+    const res = await run(
+      [
+        "--confdir",
+        scratch,
+        "--syncdir",
+        scratchData,
+        "--get-sharepoint-drive-id",
+        siteName,
+        "--resync",
+        "--resync-auth",
+      ],
+      { timeout: REMOTE_TIMEOUT_MS }
+    );
+
+    if (existsSync(scratchToken)) {
+      const after = readFileSync(scratchToken);
+      if (!after.equals(before)) writeFileSync(sourceToken, after, { mode: 0o600 });
+    }
+
+    return res;
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
 }
