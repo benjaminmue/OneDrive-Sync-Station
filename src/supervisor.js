@@ -28,6 +28,21 @@ export const events = new EventEmitter();
 // perfectly normal number of viewers for a household.
 events.setMaxListeners(100);
 
+/**
+ * Local files the client refuses to upload because the folder selection does
+ * not cover them.
+ *
+ * The client distinguishes the two directions in its output, and only this one
+ * is worth reporting. "Skipping path" is a remote item the selection leaves
+ * alone, which is the entire purpose of having a selection. "Skipping file" is
+ * a file sitting on this server that will never reach OneDrive, and nothing
+ * else tells the user that it is unprotected.
+ */
+const LOCAL_SKIP_LINE = /Skipping file - excluded by sync_list config:\s*(.+?)\s*$/gm;
+
+/** Upper bound on remembered skips, so a large mismatch cannot grow without end. */
+const MAX_LOCAL_SKIPS = 500;
+
 /** An exit within this window after start counts as a failed start. */
 const STARTUP_GRACE_MS = 20_000;
 
@@ -66,6 +81,7 @@ const STOP_GRACE_MS = 15_000;
  * @property {boolean} resyncRecoveryUsed Whether the one-shot resync recovery was already spent.
  * @property {boolean} stopRequested Whether this supervisor asked the client to stop.
  * @property {Array<() => void>} exitWaiters Resolvers waiting for the process to be gone.
+ * @property {Set<string>} localSkips Local paths the selection excludes from upload.
  * @property {ReturnType<typeof createRingBuffer>} buffer Recent client output.
  */
 
@@ -93,6 +109,7 @@ function runnerFor(id) {
       resyncRecoveryUsed: false,
       stopRequested: false,
       exitWaiters: [],
+      localSkips: new Set(),
       buffer: createRingBuffer(400),
     };
     runners.set(id, state);
@@ -114,6 +131,9 @@ function runnerFor(id) {
  */
 function record(id, chunk) {
   const state = runnerFor(id);
+  for (const match of String(chunk).matchAll(LOCAL_SKIP_LINE)) {
+    if (state.localSkips.size < MAX_LOCAL_SKIPS) state.localSkips.add(match[1]);
+  }
   for (const line of String(chunk).split(/\r?\n/)) {
     if (!line) continue;
     const entry = { ts: localTimestamp(), line };
@@ -205,6 +225,9 @@ function spawnClient(instance) {
     args.push("--resync", "--resync-auth");
     state.resyncPending = false;
   }
+
+  // Cleared per run: the answer belongs to the selection in force right now.
+  state.localSkips.clear();
 
   const invocation = clientCommand(args);
   const child = spawn(invocation.command, invocation.args, { stdio: ["ignore", "pipe", "pipe"] });
@@ -421,6 +444,7 @@ export function status(id) {
     failures: state.failures,
     lastExit: state.lastExit,
     resyncPending: state.resyncPending,
+    localSkips: [...state.localSkips],
   };
 }
 

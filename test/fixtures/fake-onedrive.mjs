@@ -183,6 +183,16 @@ if (has("--monitor")) {
   process.stdout.write(`Starting monitor mode for ${syncDir}\n`);
   if (has("--resync")) process.stdout.write("Performing a database resync\n");
 
+  // Both directions of an active selection, worded as the real client words
+  // them. Only the local one means data on this server is unprotected; the
+  // remote one is the selection doing its job.
+  if (process.env.FAKE_LOCAL_SKIP === "1") {
+    process.stdout.write("Skipping path - excluded by sync_list config: Remote/Ignored\n");
+    process.stdout.write(
+      `Skipping file - excluded by sync_list config: ${syncDir}/Notizen/geheim.txt\n`
+    );
+  }
+
   let stopping = false;
   const finish = () => {
     if (stopping) return;

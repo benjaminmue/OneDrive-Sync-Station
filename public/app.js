@@ -248,6 +248,13 @@ export const en = {
   "picker.discovering":
     "Still looking at the account. The list appears when that finishes; the log " +
     "shows the progress.",
+  "skips.title": "Not backed up: {n} local items outside your selection",
+  "skips.hint":
+    "These sit on this server and are never uploaded, because your folder " +
+    "selection does not cover them. They exist nowhere else unless you have " +
+    "another copy. Either add the folder to the selection, or move the files " +
+    "somewhere the station does not manage.",
+  "skips.more": "and {n} more",
   "picker.reload": "Reload list",
   "picker.expand": "Expand",
   "picker.collapse": "Collapse",
@@ -830,6 +837,25 @@ function updateSummary(card, instance) {
   // Failure states must be visible without opening anything.
   if (status.alert) {
     summary.append(el("p", { text: status.alert, className: "acc-alert", attrs: { role: "alert" } }));
+  }
+
+  // Files on this server that the selection leaves unprotected. Reported on the
+  // card because nothing else would ever mention them: the client skips them
+  // silently, and the user has no reason to suspect it.
+  const skipped = instance.runtime.localSkips || [];
+  if (skipped.length) {
+    const box = el("div", { className: "skip-warning" });
+    box.append(
+      el("strong", { text: t("skips.title", { n: skipped.length }) }),
+      el("p", { text: t("skips.hint"), className: "hint" })
+    );
+    const list = el("ul", { className: "skip-list" });
+    for (const path of skipped.slice(0, 10)) list.append(el("li", { text: path }));
+    box.append(list);
+    if (skipped.length > 10) {
+      box.append(el("p", { text: t("skips.more", { n: skipped.length - 10 }), className: "hint" }));
+    }
+    summary.append(box);
   }
 
   // A signed-in account that never confirmed its selection gets the choice
