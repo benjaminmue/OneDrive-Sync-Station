@@ -12,10 +12,10 @@
 
 ---
 
-> **Status: proof of concept.** The flow works end to end against a stubbed
-> client and the full test suite passes, but the image has not yet been
-> exercised against real Microsoft accounts. Do not point it at data you cannot
-> lose yet.
+> **Status: early.** A personal OneDrive account has been synced end to end with
+> this container on real hardware. Business accounts and SharePoint libraries use
+> the same code path but have not been exercised against live accounts yet. Do
+> not point it at data you have no other copy of.
 
 ## What it does
 
@@ -65,7 +65,16 @@ docker compose up -d --build
    a blank page.
 3. Copy the **full URL of that blank page** from the address bar and paste it
    back into the UI. That URL carries the authorisation code.
-4. Syncing starts on its own.
+4. Decide what to sync. Syncing does **not** start by itself: the account offers
+   to look at its folders first (a dry run that downloads nothing), to go
+   straight to the selection, or to take everything. Pressing Start begins the
+   sync.
+
+Microsoft shows a warning on that blank page, claiming the URL contains your
+password and should not be shared. It carries a one-time code, not a password,
+and pasting it into the station is its intended use. Copy the address quickly:
+the page redirects itself after a few seconds, and the code is then only
+recoverable from the browser history.
 
 ### Which sign-in method
 
@@ -120,9 +129,13 @@ An empty list syncs everything. Rules without a leading slash match anywhere in
 the tree and are the expensive kind, because the client has to walk every folder
 online and locally to find them.
 
+Above the editor is a list of the account's folders to tick, read from what the
+sync client already knows, so the paths do not have to be typed by hand.
+
 Saving restarts the account with `--resync`, which the client requires after
-every change to the selection. That re-reads the account state from Microsoft;
-it does not delete local data.
+every change to the selection. Note what that means for folders you remove:
+their local copies under the data path are deleted on the next run. They remain
+in OneDrive. Use **Dry run** first to see what would happen.
 
 ## Configuration
 
