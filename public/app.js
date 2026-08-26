@@ -200,8 +200,9 @@ export const en = {
 
   "picker.title": "Your folders",
   "picker.hint":
-    "Read from what the sync client already knows about this account. Tick a " +
-    "folder to add it to the rules below, untick it to remove its rule.",
+    "Tick a folder to add it to the rules below, untick it to remove its rule. " +
+    "The list is a snapshot: after creating folders in OneDrive, use Reload " +
+    "list, which fetches it again and downloads nothing.",
   "picker.notSynced":
     "No folder list yet. Use \"Look at the folders first\" on the card above: " +
     "that asks Microsoft what is in this account without downloading anything, " +
@@ -1677,7 +1678,27 @@ function buildFolderPicker(id, textarea) {
     }
   };
 
-  reload.addEventListener("click", load);
+  reload.addEventListener("click", async () => {
+    const account = model.get(id);
+    // Re-reading the stored list would only show the same snapshot again: a
+    // folder created in OneDrive after the last fetch cannot be in it. So the
+    // list is fetched from Microsoft again. Not while a client is running,
+    // though: its own item cache is then the fresher source, and a second
+    // client on the same config directory is not allowed in any case.
+    if (account && !account.runtime?.running && !account.discovering) {
+      reload.disabled = true;
+      body.replaceChildren(el("p", { text: t("picker.discovering"), className: "hint" }));
+      try {
+        await api(`/api/instances/${id}/discover`, { method: "POST" });
+        scheduleRefresh();
+      } catch (err) {
+        body.replaceChildren(el("p", { text: describeError(err), className: "msg err" }));
+        reload.disabled = false;
+      }
+      return;
+    }
+    load();
+  });
   load();
   return wrap;
 }
