@@ -9,7 +9,7 @@
 
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, readFileSync, writeFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { bootstrap } from "./helpers.mjs";
 
@@ -25,6 +25,15 @@ before(async () => {
 });
 
 after(() => env.cleanup());
+
+test("the client rejects a resync alongside this lookup, so none is attempted", async () => {
+  const instance = env.instances.requireInstance("work");
+  writeFileSync(join(confDir, ".needs-resync"), "");
+  const res = await env.onedrive.getSharePointDriveId(instance, "Marketing");
+  assert.doesNotMatch(res.text, /cannot be used with --resync/);
+  assert.equal(res.ok, true);
+  rmSync(join(confDir, ".needs-resync"));
+});
 
 test("a lookup succeeds while the account is refusing to run", async () => {
   const instance = env.instances.requireInstance("work");
@@ -52,7 +61,9 @@ test("the item database of the account survives the lookup", () => {
 });
 
 test("the rotated refresh token is written back to the account", () => {
-  assert.equal(readFileSync(join(confDir, "refresh_token"), "utf8"), "rotated-refresh-token");
+  // The value names the directory the client rotated it in. Seeing the
+  // throwaway directory's name here is the proof it was copied back.
+  assert.equal(readFileSync(join(confDir, "refresh_token"), "utf8"), "rotated-in-work.lookup");
 });
 
 test("the throwaway directory is gone", () => {
@@ -70,4 +81,33 @@ test("without a token there is nothing to try, and the refusal stands", async ()
   assert.equal(res.ok, false);
   assert.equal(res.isolated, false);
   assert.match(res.text, /resync is required/);
+});
+
+test("a pasted library URL is reduced to the site name", async () => {
+  const { siteNameFrom } = env.onedrive;
+
+  // What the browser shows while looking at the library.
+  assert.equal(
+    siteNameFrom("https://bebamu.sharepoint.com/sites/instagram/Freigegebene%20Dokumente/Forms/AllItems.aspx"),
+    "instagram"
+  );
+  // Teams-provisioned sites live under a different segment.
+  assert.equal(siteNameFrom("https://x.sharepoint.com/teams/Marketing/Shared%20Documents"), "Marketing");
+  // Encoded characters in the site name itself survive.
+  assert.equal(siteNameFrom("https://x.sharepoint.com/sites/Bau%20Team"), "Bau Team");
+  // A plain name is left alone.
+  assert.equal(siteNameFrom("instagram"), "instagram");
+  assert.equal(siteNameFrom("  Marketing  "), "Marketing");
+  // Malformed encoding is not worth failing a lookup over.
+  assert.equal(siteNameFrom("https://x.sharepoint.com/sites/100%"), "100%");
+});
+
+test("the lookup reports the site it actually asked for", async () => {
+  const instance = env.instances.requireInstance("work");
+  const res = await env.onedrive.getSharePointDriveId(
+    instance,
+    "https://bebamu.sharepoint.com/sites/instagram/Freigegebene%20Dokumente/Forms/AllItems.aspx"
+  );
+  assert.equal(res.site, "instagram");
+  assert.equal(res.libraries[0].name, "instagram Documents");
 });

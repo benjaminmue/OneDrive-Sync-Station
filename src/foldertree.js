@@ -233,6 +233,9 @@ export function treeFromPaths(paths) {
   return sort(roots);
 }
 
+/** Leading separator, stripped so every source compares in the same shape. */
+const LEADING_SLASH = new RegExp("^/");
+
 /**
  * Flag folders that exist locally but are unknown online.
  * @param {FolderNode[]} nodes Tree to walk.
@@ -241,7 +244,7 @@ export function treeFromPaths(paths) {
  */
 function markLocalOnly(nodes, remote) {
   for (const node of nodes) {
-    const relative = node.path.replace(new RegExp("^\/"), "");
+    const relative = node.path.replace(LEADING_SLASH, "");
     node.localOnly = !remote.has(relative);
     markLocalOnly(node.children, remote);
   }

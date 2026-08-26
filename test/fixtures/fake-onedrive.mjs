@@ -11,7 +11,7 @@
 //   FAKE_MONITOR_EXIT=n  monitor mode exits with code n after a moment
 
 import { writeFileSync, existsSync, readFileSync, mkdirSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 
 const argv = process.argv.slice(2);
 
@@ -143,13 +143,15 @@ if (has("--display-quota")) {
 
 // The real client checks for an outstanding resync before it runs anything at
 // all, a read-only lookup included, and refuses with exit 126 until one is
-// granted. A marker file lets a test put an account into that state.
-if (
-  has("--get-sharepoint-drive-id") &&
-  confDir &&
-  existsSync(join(confDir, ".needs-resync")) &&
-  !has("--resync")
-) {
+// granted. It also rejects --resync in combination with this lookup, so the
+// only way out is a directory it finds nothing to complain about. A marker file
+// lets a test put an account into that state.
+if (has("--get-sharepoint-drive-id") && has("--resync")) {
+  console.log("ERROR: --get-sharepoint-drive-id cannot be used with --resync or --resync-auth");
+  process.exit(1);
+}
+
+if (has("--get-sharepoint-drive-id") && confDir && existsSync(join(confDir, ".needs-resync"))) {
   console.log("Reading configuration file: " + join(confDir, "config"));
   console.log("Configuration file successfully loaded");
   console.log("");
@@ -162,9 +164,10 @@ if (
 if (has("--get-sharepoint-drive-id")) {
   const site = valueOf("--get-sharepoint-drive-id");
   // Microsoft hands out a new refresh token whenever one is redeemed, and the
-  // client stores it. That is what the station has to copy back.
-  if (has("--resync") && confDir) {
-    writeFileSync(join(confDir, "refresh_token"), "rotated-refresh-token");
+  // client stores it where it is running. Tagging the value with the directory
+  // is what lets a test tell a copied-back token from an untouched one.
+  if (confDir && existsSync(join(confDir, "refresh_token"))) {
+    writeFileSync(join(confDir, "refresh_token"), "rotated-in-" + basename(confDir));
   }
   process.stdout.write(
     `Library Name = ${site} Documents\ndrive_id = b!FAKEDRIVEID123\n\n` +

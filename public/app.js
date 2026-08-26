@@ -357,7 +357,8 @@ export const en = {
     "that is already signed in, usually a business account of the same tenant. " +
     "Click a result to fill in its drive ID.",
   "lookup.source": "Signed-in account",
-  "lookup.site": "Site name or URL",
+  "lookup.site": "Site name or library URL",
+  "lookup.usedSite": "Searched for the site {site}.",
   "lookup.sitePlaceholder": "Marketing",
   "lookup.run": "Look up",
   "lookup.none": "No signed-in account yet, sign in with a business account first.",
@@ -2194,9 +2195,16 @@ async function runSharePointLookup() {
       method: "POST",
       body: { instanceId, site: $("lookup-site").value.trim() },
     });
+    const entered = $("lookup-site").value.trim();
+    // The client searches by site name, so a pasted library address is cut down
+    // to one. Saying which name was used turns an empty result from a puzzle
+    // into something the user can correct.
+    const usedSite = res.site && res.site !== entered ? ` ${t("lookup.usedSite", { site: res.site })}` : "";
+
     if (res.libraries?.length) {
       const n = res.libraries.length;
-      setMsg(msg, "ok", n === 1 ? t("lookup.foundOne") : t("lookup.foundMany", { n }));
+      const found = n === 1 ? t("lookup.foundOne") : t("lookup.foundMany", { n });
+      setMsg(msg, "ok", found + usedSite);
       for (const lib of res.libraries) {
         // One button per library: clicking copies its drive ID into the form.
         const use = el("button", { className: "lookup-result", attrs: { type: "button" } });
@@ -2211,7 +2219,7 @@ async function runSharePointLookup() {
         results.append(use);
       }
     } else {
-      setMsg(msg, "info", t("lookup.raw"));
+      setMsg(msg, "info", t("lookup.raw") + usedSite);
       raw.textContent = res.text || t("tools.noOutput");
       raw.hidden = false;
     }

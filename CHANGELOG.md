@@ -8,6 +8,24 @@ Every published image carries a version. The header of the web UI shows it
 together with the commit the image was built from, so it is always possible to
 tell which build is running.
 
+## [0.2.3] - 2026-08-27
+
+### Added
+
+- The site field takes a pasted library address as well as a site name. The
+  client searches by name and finds nothing when handed a full address, which is
+  the obvious thing to paste, since the browser is open on the library anyway.
+  The name that was searched for is reported back.
+- Folders that exist only on this server are covered by tests, so the marking
+  cannot silently invert and label everything.
+
+### Fixed
+
+- The drive id lookup no longer passes `--resync`, which the client rejects in
+  combination with it. It is not needed: the throwaway directory holds no config
+  file, so the client computes no config hash, has nothing to compare, and asks
+  for no resync at all.
+
 ## [0.2.2] - 2026-08-27
 
 ### Fixed

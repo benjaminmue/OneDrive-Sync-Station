@@ -220,6 +220,28 @@ export function parseSharePointDriveIds(text) {
 }
 
 /**
+ * Reduce whatever was pasted into the site field to a site name.
+ *
+ * The client searches for a site by name and finds nothing when handed a full
+ * address, which is the obvious thing to paste: the browser is open on the
+ * library anyway. Everything after the site segment is a library and view path
+ * and has no bearing on the lookup.
+ *
+ * @param {string} value Site name or any SharePoint URL.
+ * @returns {string} The site name, or the input unchanged when it is not a URL.
+ */
+export function siteNameFrom(value) {
+  const raw = String(value).trim();
+  const match = raw.match(new RegExp("/(?:sites|teams)/([^/?#]+)", "i"));
+  if (!match) return raw;
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return match[1]; // a stray percent sign is not a reason to fail the lookup
+  }
+}
+
+/**
  * Query the drive ids of the SharePoint libraries of a site.
  *
  * Requires an instance that is already signed in with an account that can see
@@ -230,20 +252,21 @@ export function parseSharePointDriveIds(text) {
  * @returns {Promise<{ok: boolean, text: string, libraries: Array<{name: string, driveId: string}>}>} Result.
  */
 export async function getSharePointDriveId(instance, siteName) {
+  const site = siteNameFrom(siteName);
   let isolated = false;
-  let res = await run([...baseArgs(instance), "--get-sharepoint-drive-id", siteName], {
+  let res = await run([...baseArgs(instance), "--get-sharepoint-drive-id", site], {
     timeout: REMOTE_TIMEOUT_MS,
   });
 
   if (!res.ok && RESYNC_DEMANDED.test(res.text)) {
-    const fallback = await lookupInScratchDir(instance, siteName);
+    const fallback = await lookupInScratchDir(instance, site);
     if (fallback) {
       res = fallback;
       isolated = true;
     }
   }
 
-  return { ...res, isolated, libraries: res.ok ? parseSharePointDriveIds(res.text) : [] };
+  return { ...res, site, isolated, libraries: res.ok ? parseSharePointDriveIds(res.text) : [] };
 }
 
 /**
@@ -256,7 +279,10 @@ export async function getSharePointDriveId(instance, siteName) {
  * reconciliation.
  *
  * So the lookup runs somewhere else. The directory holds a copy of the refresh
- * token and nothing more, which makes the resync free, and it is removed again
+ * token and nothing else, in particular no config file: with none present the
+ * client computes no config hash, has nothing to compare against, and asks for
+ * no resync at all. Passing --resync instead is not possible, the client
+ * refuses it in combination with this lookup. The directory is removed again
  * afterwards.
  *
  * Microsoft rotates refresh tokens on use, so the token the lookup leaves
@@ -284,19 +310,14 @@ async function lookupInScratchDir(instance, siteName) {
     const before = readFileSync(sourceToken);
     writeFileSync(scratchToken, before, { mode: 0o600 });
 
-    // No syncdir of the account here either: the client would otherwise fall
+    // Deliberately no config file in here, and no --resync either: the client
+    // rejects --resync alongside this lookup outright, and without a config
+    // file it never computes a config hash, so it has nothing to compare and
+    // asks for no resync in the first place (config.d, createRequiredInitial
+    // ConfigurationHashFiles). The syncdir is passed so the client cannot fall
     // back to a default path and create a directory nobody asked for.
     const res = await run(
-      [
-        "--confdir",
-        scratch,
-        "--syncdir",
-        scratchData,
-        "--get-sharepoint-drive-id",
-        siteName,
-        "--resync",
-        "--resync-auth",
-      ],
+      ["--confdir", scratch, "--syncdir", scratchData, "--get-sharepoint-drive-id", siteName],
       { timeout: REMOTE_TIMEOUT_MS }
     );
 
