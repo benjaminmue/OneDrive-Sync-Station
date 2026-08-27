@@ -56,10 +56,27 @@ docker run -d \
   -v /mnt/user/appdata/onedrive-sync-station:/config \
   -v /mnt/user/OneDrive:/data \
   -e PUID=99 -e PGID=100 -e TZ=Europe/Zurich \
-  ghcr.io/benjaminmue/onedrive-sync-station:latest
+  ghcr.io/benjaminmue/onedrive-sync-station:beta
 ```
 
 Then open `http://<host>:8080`, set a password, and add your first account.
+
+The tag is `:beta` on purpose. `:latest` does not exist until the first version
+tag, and pulling it fails.
+
+## Install on Unraid
+
+The container is in **Community Applications**, published from the beta channel,
+so it carries a BETA banner. Search for *OneDrive Sync Station* under Apps.
+
+The CA template is maintained in the repository
+[`benjaminmue/unraid`](https://github.com/benjaminmue/unraid/blob/main/templates/onedrive-sync-station.xml).
+To add the container without CA, use the Docker tab, **Add Container**, and paste
+that template URL:
+
+```
+https://raw.githubusercontent.com/benjaminmue/unraid/main/templates/onedrive-sync-station.xml
+```
 
 Or with compose:
 
@@ -247,9 +264,9 @@ Honest list of what is missing or rough, rather than finding out the hard way:
   gives the full picture.
 - **No log rotation.** The client's output is held in memory per account and
   capped by line count, but nothing is written to disk in a rotated form yet.
-- **Not in Community Applications yet.** The template and icon are in this
-  repository under `unraid/`; the entry in the CA feed is still to come.
-- **`:latest` does not exist yet.** Use `:beta` until the first version tag.
+- **Published from the beta channel.** The Community Applications entry points
+  at `:beta` and is flagged as beta there. `:latest` does not exist until the
+  first version tag, so pulling it fails.
 - **One pair of eyes.** No independent review has happened yet.
 
 ## Credits

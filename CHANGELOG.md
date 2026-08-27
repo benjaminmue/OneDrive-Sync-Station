@@ -8,6 +8,19 @@ Every published image carries a version. The header of the web UI shows it
 together with the commit the image was built from, so it is always possible to
 tell which build is running.
 
+## [0.4.2] - 2026-08-27
+
+### Fixed
+
+- The quick start pulled `:latest`, a tag that does not exist and will not until
+  the first version tag, so copying the command failed. It pulls `:beta`, and
+  says why.
+
+### Changed
+
+- The container is in Community Applications now, published from the beta
+  channel. README says so, with the template URL for adding it without CA.
+
 ## [0.4.1] - 2026-08-27
 
 ### Changed
