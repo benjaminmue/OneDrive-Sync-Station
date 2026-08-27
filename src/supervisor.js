@@ -308,16 +308,33 @@ function handleGone(instance, code, signal, opts) {
   // is what makes an account look permanently broken after any configuration
   // change. Granting it only once keeps a client that asks again from looping,
   // and the counter resets as soon as a start survives the grace period.
-  if (code === EXIT_RESYNC_REQUIRED && !state.resyncRecoveryUsed) {
+  if (code === EXIT_RESYNC_REQUIRED) {
+    // The client asks again for what it was just given. Granting it once more
+    // immediately would spin, so this backs off like any other failed start,
+    // but it keeps asking WITH --resync: restarting without it can only produce
+    // the same refusal, which used to leave the account restarting forever and
+    // never doing the one thing the client was asking for.
+    const repeated = state.resyncRecoveryUsed;
     state.resyncRecoveryUsed = true;
     state.resyncPending = true;
-    record(instance.id, "[station] the client requires a resync, restarting with --resync");
-    log.info("resync required by client", { instance: instance.id });
+    state.failures = repeated ? state.failures + 1 : 0;
+
+    const delay = repeated
+      ? Math.min(RESTART_BASE_MS * 2 ** (state.failures - 1), RESTART_MAX_MS)
+      : RESYNC_RECOVERY_DELAY_MS;
+
+    record(
+      instance.id,
+      repeated
+        ? `[station] the client still requires a resync, retrying with --resync in ${Math.round(delay / 1000)}s`
+        : "[station] the client requires a resync, restarting with --resync"
+    );
+    log.info("resync required by client", { instance: instance.id, repeated });
     clearTimer(state, "restartTimer");
     state.restartTimer = setTimeout(() => {
       state.restartTimer = null;
       if (state.wantRunning) spawnClient(instance);
-    }, RESYNC_RECOVERY_DELAY_MS);
+    }, delay);
     announce(instance.id);
     return;
   }

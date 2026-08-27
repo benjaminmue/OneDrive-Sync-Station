@@ -21,6 +21,8 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { instanceConfDir, instanceDataDir } from "./config.js";
+import { writeFileAtomic } from "./storage.js";
+import { log } from "./logger.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -37,6 +39,12 @@ const MAX_OUTPUT_BYTES = 8 * 1024 * 1024;
 
 /** The client's refusal to run while it considers a resync outstanding. */
 const RESYNC_DEMANDED = /resync is required/i;
+
+/** Accounts with a scratch lookup in flight, so a second one cannot collide. */
+const scratchLookups = new Set();
+
+/** Makes each scratch directory name unique within this process. */
+let scratchCounter = 0;
 
 /** Name the client stores its refresh token under inside a config directory. */
 const TOKEN_FILE = "refresh_token";
@@ -104,7 +112,7 @@ export async function run(args, opts = {}) {
   }
 }
 
-/** Cached result of `--version`; it can only change when the image changes. */
+/** Cached `--version` promise; the version can only change with the image. */
 let versionCache = null;
 
 /**
@@ -118,7 +126,11 @@ let versionCache = null;
  * @returns {Promise<{ok: boolean, text: string}>} Version output.
  */
 export async function version() {
-  if (!versionCache) versionCache = await run(["--version"]);
+  // The promise is cached, not its result: caching the result meant every
+  // request arriving during the first call still saw null and spawned its own
+  // client. That route needs no session, so a burst at startup could exhaust
+  // the container's process limit from outside.
+  if (!versionCache) versionCache = run(["--version"]);
   return versionCache;
 }
 
@@ -220,39 +232,16 @@ export function parseSharePointDriveIds(text) {
 }
 
 /**
- * Reduce whatever was pasted into the site field to a site name.
- *
- * The client searches for a site by name and finds nothing when handed a full
- * address, which is the obvious thing to paste: the browser is open on the
- * library anyway. Everything after the site segment is a library and view path
- * and has no bearing on the lookup.
- *
- * @param {string} value Site name or any SharePoint URL.
- * @returns {string} The site name, or the input unchanged when it is not a URL.
- */
-export function siteNameFrom(value) {
-  const raw = String(value).trim();
-  const match = raw.match(new RegExp("/(?:sites|teams)/([^/?#]+)", "i"));
-  if (!match) return raw;
-  try {
-    return decodeURIComponent(match[1]);
-  } catch {
-    return match[1]; // a stray percent sign is not a reason to fail the lookup
-  }
-}
-
-/**
  * Query the drive ids of the SharePoint libraries of a site.
  *
  * Requires an instance that is already signed in with an account that can see
  * the site: the lookup runs as that account.
  *
  * @param {object} instance Signed-in instance used for the lookup.
- * @param {string} siteName Site name or URL to search for, already validated.
+ * @param {string} site Site name, already reduced and validated in validate.js.
  * @returns {Promise<{ok: boolean, text: string, libraries: Array<{name: string, driveId: string}>}>} Result.
  */
-export async function getSharePointDriveId(instance, siteName) {
-  const site = siteNameFrom(siteName);
+export async function getSharePointDriveId(instance, site) {
   // Which route the lookup took. Reported so a failure can be read without
   // guessing from the client's output which of the two runs produced it.
   let attempt = "direct";
@@ -300,23 +289,31 @@ export async function getSharePointDriveId(instance, siteName) {
  * this the next sign-in attempt would fail with no visible cause.
  *
  * @param {object} instance Signed-in instance used for the lookup.
- * @param {string} siteName Site name or URL, already validated.
+ * @param {string} site Site name, already validated.
  * @returns {Promise<{ok: boolean, text: string}|null>} Result, or null if there
  *   is no token to work with.
  */
-async function lookupInScratchDir(instance, siteName) {
+async function lookupInScratchDir(instance, site) {
   const source = instanceConfDir(instance.id);
   const sourceToken = join(source, TOKEN_FILE);
   if (!existsSync(sourceToken)) return null;
 
-  const scratch = `${source}.lookup`;
+  // One lookup per account at a time. The scratch directory is derived from the
+  // account, so a second concurrent lookup would delete the first one's
+  // directory out from under its running client and could write back the wrong
+  // token.
+  if (scratchLookups.has(instance.id)) return { ok: false, text: "lookup-already-running" };
+  scratchLookups.add(instance.id);
+
+  // Unique per run, so a directory left behind by a killed container is never
+  // mistaken for this run's, and cleanup never removes someone else's.
+  const scratch = `${source}.lookup-${process.pid}-${++scratchCounter}`;
   const scratchToken = join(scratch, TOKEN_FILE);
   const scratchData = join(scratch, "data");
 
-  rmSync(scratch, { recursive: true, force: true });
-  mkdirSync(scratchData, { recursive: true, mode: 0o700 });
-
   try {
+    mkdirSync(scratchData, { recursive: true, mode: 0o700 });
+
     const before = readFileSync(sourceToken);
     writeFileSync(scratchToken, before, { mode: 0o600 });
 
@@ -327,20 +324,33 @@ async function lookupInScratchDir(instance, siteName) {
     // ConfigurationHashFiles). The syncdir is passed so the client cannot fall
     // back to a default path and create a directory nobody asked for.
     const res = await run(
-      ["--confdir", scratch, "--syncdir", scratchData, "--get-sharepoint-drive-id", siteName],
+      ["--confdir", scratch, "--syncdir", scratchData, "--get-sharepoint-drive-id", site],
       { timeout: REMOTE_TIMEOUT_MS }
     );
 
+    // Written back only if the source still holds exactly what was copied. If it
+    // changed meanwhile, the account's own client rotated its token during the
+    // lookup and that one is newer: overwriting it would leave the account
+    // holding a token Microsoft has already superseded. Written atomically, so
+    // a crash mid-write cannot leave a truncated token behind.
     if (existsSync(scratchToken)) {
       const after = readFileSync(scratchToken);
-      if (!after.equals(before)) writeFileSync(sourceToken, after, { mode: 0o600 });
+      if (!after.equals(before)) {
+        if (readFileSync(sourceToken).equals(before)) {
+          writeFileAtomic(sourceToken, after, { mode: 0o600 });
+        } else {
+          log.warn("token rotated during a lookup, keeping the account's own", {
+            instance: instance.id,
+          });
+        }
+      }
     }
 
-    // The directory is created empty and holds one file this code put there, so
-    // a refusal that blames a changed configuration is talking about something
-    // the client brought along itself. Listing what is actually in there is the
-    // only way to tell which, and the directory is gone a moment later.
     if (!res.ok) {
+      // The directory is created empty and holds one file this code put there,
+      // so a refusal blaming a changed configuration is about something the
+      // client brought along itself. Listing what is in there is the only way
+      // to tell which, and it is gone a moment later.
       const contents = readdirSync(scratch).sort().join(", ") || "(empty)";
       return { ...res, text: `${res.text}
 
@@ -349,6 +359,13 @@ async function lookupInScratchDir(instance, siteName) {
 
     return res;
   } finally {
-    rmSync(scratch, { recursive: true, force: true });
+    // Covers a failure during setup as well, and never throws: a cleanup error
+    // must not replace the result the caller is waiting for.
+    try {
+      rmSync(scratch, { recursive: true, force: true });
+    } catch (err) {
+      log.warn("could not remove the lookup directory", { dir: scratch, err: err.message });
+    }
+    scratchLookups.delete(instance.id);
   }
 }

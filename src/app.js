@@ -54,7 +54,16 @@ const SSE_BACKPRESSURE_LIMIT_BYTES = 1024 * 1024;
  * @returns {Promise<import("fastify").FastifyInstance>} The ready application.
  */
 export async function createApp() {
-  const app = Fastify({ logger: false, trustProxy: true });
+  // trustProxy is opt-in through TRUSTED_PROXIES, not on by default. With it on,
+  // request.ip comes from X-Forwarded-For, which any client can set: since that
+  // is the login throttle's key, a new header value bought a fresh bucket on
+  // every attempt and the throttle was decorative. Behind a real proxy, set the
+  // variable to that proxy's address (or a CIDR) so the header is trusted from
+  // there and nowhere else.
+  const trustProxy = process.env.TRUSTED_PROXIES
+    ? process.env.TRUSTED_PROXIES.split(",").map((entry) => entry.trim()).filter(Boolean)
+    : false;
+  const app = Fastify({ logger: false, trustProxy });
 
   // Tolerate body-less POSTs that still send `Content-Type: application/json`
   // (fetch does this): an empty body parses to {} instead of a 400.
@@ -133,7 +142,15 @@ export async function createApp() {
       return reply.code(409).send({ error: "already-configured" });
     }
     const password = validate.password(request.body?.password);
-    saveSettings({ guiPasswordHash: hashPassword(password) });
+    // Deliberately no await between the check above and the write below: the
+    // hashing is synchronous, so nothing can interleave and hand a second
+    // first-time request its own session. The second check costs nothing and
+    // keeps that true if the hashing ever becomes asynchronous.
+    const hash = hashPassword(password);
+    if (loadSettings().guiPasswordHash) {
+      return reply.code(409).send({ error: "already-configured" });
+    }
+    saveSettings({ guiPasswordHash: hash });
     createSession(reply);
     log.info("web ui password set");
     return { ok: true };
@@ -445,7 +462,7 @@ export async function createApp() {
     if (!instances.isAuthenticated(instance)) {
       return reply.code(409).send({ error: "not-authenticated" });
     }
-    const site = validate.remotePath(request.body?.site, "site");
+    const site = validate.siteName(request.body?.site);
     const result = await onedrive.getSharePointDriveId(instance, site);
 
     // The lookup had to run in isolation and Microsoft rotated the refresh

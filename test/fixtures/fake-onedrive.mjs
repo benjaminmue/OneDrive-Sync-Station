@@ -174,6 +174,12 @@ if (has("--get-sharepoint-drive-id")) {
   // client stores it where it is running. Tagging the value with the directory
   // is what lets a test tell a copied-back token from an untouched one.
   if (confDir && existsSync(join(confDir, "refresh_token"))) {
+    // FAKE_ROTATE_SOURCE simulates the account's own monitor rotating its token
+    // while this lookup is running, which is the window the station has to
+    // survive: writing back afterwards would hand the account a spent token.
+    if (process.env.FAKE_ROTATE_SOURCE) {
+      writeFileSync(process.env.FAKE_ROTATE_SOURCE, "token-B-rotated-by-monitor");
+    }
     writeFileSync(join(confDir, "refresh_token"), "rotated-in-" + basename(confDir));
   }
   process.stdout.write(
@@ -206,7 +212,14 @@ if (has("--monitor")) {
   // when its configuration changed since the last run, which includes the very
   // first run after a sign-in. A marker file reproduces that: the demand is
   // raised once and satisfied by a start that carries --resync.
+  // FAKE_DEMAND_RESYNC=always keeps demanding it even when the start carries
+  // --resync, which is the case that used to wedge an account: the station had
+  // spent its one grant and every later restart omitted the flag.
   const resyncMarker = join(confDir || ".", ".resync-demanded");
+  if (process.env.FAKE_DEMAND_RESYNC === "always") {
+    console.log("An application configuration change has been detected");
+    process.exit(126);
+  }
   if (process.env.FAKE_DEMAND_RESYNC === "1" && !has("--resync") && !existsSync(resyncMarker)) {
     writeFileSync(resyncMarker, "demanded\n");
     process.stdout.write("An application configuration change has been detected\n");

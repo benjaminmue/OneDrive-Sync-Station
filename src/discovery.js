@@ -36,6 +36,23 @@ const SELECTION_FILE = "sync_list";
 const SELECTION_PARKED = "sync_list.discovery-backup";
 
 /**
+ * Where a write to the folder selection has to land right now.
+ *
+ * While a run has the selection parked, the active file belongs to the run and
+ * is deleted when it restores. A save going there would be silently lost, so it
+ * goes to the parked copy instead and takes effect when the run ends.
+ *
+ * @param {object} instance Instance record.
+ * @returns {string} Absolute path to write the selection to.
+ */
+export function selectionWritePath(instance) {
+  const confDir = instanceConfDir(instance.id);
+  const parked = join(confDir, SELECTION_PARKED);
+  const parkedByRun = isRunning(instance.id) && existsSync(parked);
+  return join(confDir, parkedByRun ? SELECTION_PARKED : SELECTION_FILE);
+}
+
+/**
  * Move the folder selection out of the client's way, if there is one.
  * @param {string} confDir Config directory of the instance.
  * @returns {boolean} True when a selection was parked and must be restored.

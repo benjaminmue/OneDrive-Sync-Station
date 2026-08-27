@@ -8,6 +8,54 @@ Every published image carries a version. The header of the web UI shows it
 together with the commit the image was built from, so it is always possible to
 tell which build is running.
 
+## [0.5.0] - 2026-08-27
+
+Findings from an independent review by a second model (OpenAI Codex), which had
+not seen the code being written. Nine held up, one did not.
+
+### Security
+
+- A percent-encoded option marker could reach the sync client's argument list.
+  `.../sites/%2Dresync` passed the check for a leading dash, because the check
+  ran on the raw value and the decoding happened afterwards. The reduction of a
+  pasted library URL to a site name now lives in the validation module and
+  validates the decoded result, which is what the argument list actually
+  receives.
+- The login throttle keyed on `request.ip` while the server trusted every proxy
+  header, so a different `X-Forwarded-For` on each attempt bought a fresh bucket
+  and the throttle did nothing. Proxy headers are now trusted only for the
+  addresses named in `TRUSTED_PROXIES`, and not at all by default.
+- Concurrent unauthenticated requests each spawned their own client process to
+  read the version, because the cache only filled after the first call returned.
+  A burst could exhaust the container's process limit without a session.
+
+### Fixed
+
+- A folder selection saved during a discovery run was silently discarded. The
+  run parks the existing selection and puts it back when it ends, deleting
+  whatever arrived in the meantime. Saves now go to the parked copy while a run
+  holds it, and take effect when the run finishes.
+- A client that demanded a resync twice in a row wedged its account. The station
+  granted the demand once and then restarted without `--resync` forever, which
+  could only produce the same refusal. Repeated demands now back off, but keep
+  carrying the flag the client is asking for.
+- The drive id lookup could hand an account a spent refresh token: if the
+  account's own client rotated its token during the lookup, the older copy was
+  written over the newer one. The write happens only if the source is unchanged,
+  and it is atomic.
+- Two lookups for one account shared a fixed scratch directory and could delete
+  each other's, mid-run. Each run gets its own directory and a second lookup for
+  the same account is refused instead.
+- A failure while creating the scratch directory left it behind, refresh token
+  included. Cleanup now covers setup failures and never masks the result.
+
+### Not changed
+
+- The review also reported a race between two first-time password setups. There
+  is none: the hashing is synchronous and the handler cannot be interleaved. A
+  second check was added anyway, because it costs nothing and keeps that true if
+  the hashing ever becomes asynchronous.
+
 ## [0.4.2] - 2026-08-27
 
 ### Fixed

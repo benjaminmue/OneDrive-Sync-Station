@@ -162,6 +162,33 @@ export function configValue(value, field, maxLength = 512) {
 }
 
 /**
+ * Reduce a SharePoint site name or library URL to the site name.
+ *
+ * The reduction has to happen here rather than at the call site, because it
+ * decodes percent escapes and the result is what reaches the client's argv. A
+ * value like `.../sites/%2Dresync` passes a check for a leading dash and only
+ * becomes `-resync` afterwards, so the decoded form is validated, not the raw
+ * one.
+ *
+ * @param {unknown} value Site name or any SharePoint URL.
+ * @param {string} [field] Field name for the error.
+ * @returns {string} The validated site name.
+ */
+export function siteName(value, field = "site") {
+  const raw = remotePath(value, field);
+  const match = raw.match(new RegExp("/(?:sites|teams)/([^/?#]+)", "i"));
+  if (!match) return raw;
+
+  let decoded;
+  try {
+    decoded = decodeURIComponent(match[1]);
+  } catch {
+    decoded = match[1]; // a stray percent sign is not a reason to fail the lookup
+  }
+  return remotePath(decoded, field);
+}
+
+/**
  * Validate a remote OneDrive path used with `--single-directory` and friends.
  * A leading dash would be parsed as another client flag, so it is rejected.
  * @param {unknown} value Raw input.

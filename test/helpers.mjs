@@ -17,7 +17,7 @@ export const FAKE_CLIENT = fileURLToPath(new URL("./fixtures/fake-onedrive.mjs",
  * Point the station at a fresh temporary environment and load its modules.
  * @param {{clientBin?: string}} [opts] Override the client binary, for example
  *   with a path that cannot be executed, to exercise spawn failures.
- * @returns {Promise<{root: string, cleanup: () => void, config: object, instances: object, supervisor: object, onedrive: object, authflow: object, synclist: object, validate: object}>} Loaded modules and the temp root.
+ * @returns {Promise<{root: string, cleanup: () => void, config: object, instances: object, supervisor: object, onedrive: object, authflow: object, synclist: object, validate: object, app: object}>} Loaded modules and the temp root.
  */
 export async function bootstrap(opts = {}) {
   const root = mkdtempSync(join(tmpdir(), "odss-test-"));
@@ -37,6 +37,7 @@ export async function bootstrap(opts = {}) {
     authflow: await import("../src/authflow.js"),
     synclist: await import("../src/synclist.js"),
     validate: await import("../src/validate.js"),
+    app: await import("../src/app.js"),
     /** Remove the temporary directory. Retries because Windows may still hold handles. */
     cleanup() {
       rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });

@@ -65,7 +65,9 @@ test("the item database of the account survives the lookup", () => {
 test("the rotated refresh token is written back to the account", () => {
   // The value names the directory the client rotated it in. Seeing the
   // throwaway directory's name here is the proof it was copied back.
-  assert.equal(readFileSync(join(confDir, "refresh_token"), "utf8"), "rotated-in-work.lookup");
+  // The value names the directory the client rotated it in, and that name now
+  // carries a per-run suffix so two lookups cannot share a directory.
+  assert.match(readFileSync(join(confDir, "refresh_token"), "utf8"), /^rotated-in-work\.lookup-/);
 });
 
 test("the throwaway directory is gone", () => {
@@ -88,30 +90,50 @@ test("without a token there is nothing to try, and the refusal stands", async ()
 });
 
 test("a pasted library URL is reduced to the site name", async () => {
-  const { siteNameFrom } = env.onedrive;
+  const { siteName } = env.validate;
 
   // What the browser shows while looking at the library.
   assert.equal(
-    siteNameFrom("https://bebamu.sharepoint.com/sites/instagram/Freigegebene%20Dokumente/Forms/AllItems.aspx"),
+    siteName("https://bebamu.sharepoint.com/sites/instagram/Freigegebene%20Dokumente/Forms/AllItems.aspx"),
     "instagram"
   );
   // Teams-provisioned sites live under a different segment.
-  assert.equal(siteNameFrom("https://x.sharepoint.com/teams/Marketing/Shared%20Documents"), "Marketing");
+  assert.equal(siteName("https://x.sharepoint.com/teams/Marketing/Shared%20Documents"), "Marketing");
   // Encoded characters in the site name itself survive.
-  assert.equal(siteNameFrom("https://x.sharepoint.com/sites/Bau%20Team"), "Bau Team");
+  assert.equal(siteName("https://x.sharepoint.com/sites/Bau%20Team"), "Bau Team");
   // A plain name is left alone.
-  assert.equal(siteNameFrom("instagram"), "instagram");
-  assert.equal(siteNameFrom("  Marketing  "), "Marketing");
+  assert.equal(siteName("instagram"), "instagram");
+  assert.equal(siteName("  Marketing  "), "Marketing");
   // Malformed encoding is not worth failing a lookup over.
-  assert.equal(siteNameFrom("https://x.sharepoint.com/sites/100%"), "100%");
+  assert.equal(siteName("https://x.sharepoint.com/sites/100%"), "100%");
+});
+
+test("an encoded option marker cannot reach the client through decoding", () => {
+  const { siteName, ValidationError } = env.validate;
+
+  // The raw value passes a check for a leading dash and only turns into one
+  // after decoding, so validating the raw form alone is not enough. Found by
+  // the Codex review, and it defeated the guard that exists for exactly this.
+  assert.throws(
+    () => siteName("https://x.sharepoint.com/sites/%2Dresync"),
+    ValidationError,
+    "percent-encoded dash is rejected"
+  );
+  assert.throws(() => siteName("https://x.sharepoint.com/sites/%2D-resync-auth"), ValidationError);
+  // Control characters have the same problem: invisible before decoding.
+  assert.throws(() => siteName("https://x.sharepoint.com/sites/a%0Ab"), ValidationError);
+  // And the plain form still has to be refused, as before.
+  assert.throws(() => siteName("--resync"), ValidationError);
 });
 
 test("the lookup reports the site it actually asked for", async () => {
   const instance = env.instances.requireInstance("work");
-  const res = await env.onedrive.getSharePointDriveId(
-    instance,
+  // The route reduces the pasted URL through validate.siteName before calling
+  // in, which is what puts the decoding behind the validation.
+  const site = env.validate.siteName(
     "https://bebamu.sharepoint.com/sites/instagram/Freigegebene%20Dokumente/Forms/AllItems.aspx"
   );
+  const res = await env.onedrive.getSharePointDriveId(instance, site);
   assert.equal(res.site, "instagram");
   assert.equal(res.libraries[0].name, "instagram Documents");
 });
@@ -133,4 +155,47 @@ test("a lookup refused even in its own directory reports, and does not crash", a
     delete process.env.FAKE_LOOKUP_ALWAYS_REFUSED;
     rmSync(join(confDir, ".needs-resync"));
   }
+});
+
+test("a token rotated by the account's own client is not overwritten", async () => {
+  const instance = env.instances.requireInstance("work");
+  const tokenPath = join(confDir, "refresh_token");
+  writeFileSync(tokenPath, "token-A");
+  writeFileSync(join(confDir, ".needs-resync"), "");
+  // The account's own monitor rotates the token while the lookup is in flight.
+  // The lookup is holding a copy derived from the older one, so writing it back
+  // would hand the account a token Microsoft has already superseded, and the
+  // next sign-in would fail with no visible cause.
+  process.env.FAKE_ROTATE_SOURCE = tokenPath;
+
+  try {
+    const res = await env.onedrive.getSharePointDriveId(instance, "Marketing");
+    assert.equal(res.ok, true, "the lookup still answers");
+    assert.equal(readFileSync(tokenPath, "utf8"), "token-B-rotated-by-monitor");
+  } finally {
+    delete process.env.FAKE_ROTATE_SOURCE;
+    rmSync(join(confDir, ".needs-resync"));
+  }
+});
+
+test("a second lookup for the same account is refused rather than colliding", async () => {
+  const instance = env.instances.requireInstance("work");
+  writeFileSync(join(confDir, "refresh_token"), "token-A");
+  writeFileSync(join(confDir, ".needs-resync"), "");
+
+  const [first, second] = await Promise.all([
+    env.onedrive.getSharePointDriveId(instance, "Marketing"),
+    env.onedrive.getSharePointDriveId(instance, "Marketing"),
+  ]);
+
+  // Exactly one of them gets to run the isolated lookup; the other is turned
+  // away instead of deleting the running one's directory.
+  const refused = [first, second].filter((r) => r.text === "lookup-already-running");
+  assert.equal(refused.length, 1, "one of the two was refused");
+  rmSync(join(confDir, ".needs-resync"));
+});
+
+test("no scratch directory survives any of it", () => {
+  const leftovers = readdirSync(join(confDir, "..")).filter((n) => n.includes(".lookup"));
+  assert.deepEqual(leftovers, []);
 });
