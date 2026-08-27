@@ -341,8 +341,17 @@ export async function createApp() {
     if (!instances.isAuthenticated(instance)) {
       return reply.code(409).send({ error: "not-authenticated" });
     }
-    // Starting is the moment the user accepts what will be synced, whether
-    // they picked folders or chose to take everything.
+    // An empty selection means "everything" to the client, and on a large
+    // account that is gigabytes nobody asked for. The station promises that
+    // nothing downloads unbidden, so starting without a selection has to be
+    // said out loud rather than inferred from a press of Start.
+    const selection = synclist.read(instance);
+    if (!selection.exists && !request.body?.acceptFullSync) {
+      return reply.code(409).send({ error: "selection-empty" });
+    }
+
+    // Starting is the moment the user accepts what will be synced, whether they
+    // picked folders or knowingly chose to take everything.
     if (!instance.setupComplete) instances.updateInstance(instance.id, { setupComplete: true });
     supervisor.start(instance);
     return supervisor.status(instance.id);

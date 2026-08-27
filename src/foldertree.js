@@ -18,7 +18,7 @@
 // columns are reported as "not available yet" rather than thrown at the user,
 // and the UI keeps the plain rule editor as the way that always works.
 
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { copyFileSync, existsSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { instanceConfDir, instanceDataDir } from "./config.js";
@@ -119,9 +119,15 @@ function treeFrom(file, source) {
  * @returns {Array<{id: string, name: string, parentId: string|null}>} Folder rows.
  */
 function readFolderRows(file) {
-  // Read-only: the client owns this database and may be writing to it. We never
-  // modify it, and opening it read-only makes that impossible by accident.
-  const db = new DatabaseSync(file, { readOnly: true });
+  // Read from a copy, not from the live file. The running client holds a lock
+  // on its database, and read-only is not enough against it: opening it while
+  // the client syncs fails with "database is locked", the folder list then
+  // silently falls back to weaker sources, and folders that came from OneDrive
+  // minutes ago end up marked as existing only on this server.
+  const copy = copyForReading(file);
+  if (!copy) return [];
+
+  const db = new DatabaseSync(copy, { readOnly: true });
   try {
     const rows = db
       .prepare("SELECT id, name, type, parentId FROM item WHERE type IN ('dir', 'remote')")
@@ -135,6 +141,46 @@ function readFolderRows(file) {
       }));
   } finally {
     db.close();
+    for (const suffix of ["", "-wal", "-shm"]) rmSync(copy + suffix, { force: true });
+  }
+}
+
+/**
+ * Copy a client database somewhere it can be read without contending for locks.
+ *
+ * The copy may catch the client mid-write and come out inconsistent. That is
+ * acceptable here: a folder listing needs no transactional consistency, and a
+ * copy damaged badly enough to fail to open is handled like any other source
+ * that has nothing to say.
+ *
+ * @param {string} file Absolute path of the live database.
+ * @returns {string|null} Path of the copy, or null when it is not worth making.
+ */
+function copyForReading(file) {
+  let size;
+  try {
+    size = statSync(file).size;
+  } catch {
+    return null;
+  }
+  if (size > MAX_DB_COPY_BYTES) {
+    log.warn("folder cache too large to copy", { file, size });
+    return null;
+  }
+
+  const copy = `${file}.reading-${process.pid}-${++copyCounter}`;
+  try {
+    copyFileSync(file, copy);
+    // A database in WAL mode keeps recent writes beside the main file; without
+    // these the copy reads as an older state, or not at all.
+    for (const suffix of ["-wal", "-shm"]) {
+      if (existsSync(file + suffix)) copyFileSync(file + suffix, copy + suffix);
+    }
+    return copy;
+  } catch (err) {
+    log.warn("could not copy a folder cache", { file, err: err.message });
+    rmSync(copy, { force: true });
+    return null;
   }
 }
 
@@ -233,8 +279,27 @@ export function treeFromPaths(paths) {
   return sort(roots);
 }
 
+/** Above this a database is not copied; a folder list is not worth the disk. */
+const MAX_DB_COPY_BYTES = 512 * 1024 * 1024;
+
+/** Makes each database copy unique within this process. */
+let copyCounter = 0;
+
 /** Leading separator, stripped so every source compares in the same shape. */
 const LEADING_SLASH = new RegExp("^/");
+
+/**
+ * State the flag as unknown, so the interface says nothing rather than
+ * something wrong.
+ * @param {FolderNode[]} nodes Tree to walk.
+ * @returns {void}
+ */
+function clearLocalOnly(nodes) {
+  for (const node of nodes) {
+    node.localOnly = false;
+    clearLocalOnly(node.children);
+  }
+}
 
 /**
  * Flag folders that exist locally but are unknown online.
@@ -417,9 +482,12 @@ export function readFolderTree(instance) {
     // A folder that exists here but is unknown online was created on this
     // server. If the selection does not cover it, nothing ever uploads it and
     // nothing says so, which is how an unprotected folder goes unnoticed.
-    const remoteSet = new Set(remote);
     const folders = treeFromPaths(paths.slice(0, MAX_FOLDERS));
-    markLocalOnly(folders, remoteSet);
+    // Only when something online actually answered. With every online source
+    // silent, every folder would look local-only, which is both wrong and
+    // alarming: it reads as "none of this is backed up anywhere".
+    if (remote.length) markLocalOnly(folders, new Set(remote));
+    else clearLocalOnly(folders);
 
     return {
       available: true,

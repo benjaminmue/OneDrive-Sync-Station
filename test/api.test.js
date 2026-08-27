@@ -138,7 +138,14 @@ test("a fresh sign-in does not start syncing on its own", async () => {
 });
 
 test("starting explicitly is what begins the sync and confirms the setup", async () => {
-  const res = await call("POST", "/api/instances/work-business/start");
+  // Nothing is selected here, and an empty selection means the whole account to
+  // the client, so the start is refused until that is accepted in as many
+  // words. Covered in detail in empty-selection.test.js.
+  const refused = await call("POST", "/api/instances/work-business/start");
+  assert.equal(refused.statusCode, 409);
+  assert.equal(body(refused).error, "selection-empty");
+
+  const res = await call("POST", "/api/instances/work-business/start", { acceptFullSync: true });
   assert.equal(res.statusCode, 200);
 
   const started = await waitFor(() => env.supervisor.status("work-business").running);

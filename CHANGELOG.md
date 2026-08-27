@@ -8,6 +8,26 @@ Every published image carries a version. The header of the web UI shows it
 together with the commit the image was built from, so it is always possible to
 tell which build is running.
 
+## [0.6.0] - 2026-08-27
+
+### Fixed
+
+- Starting an account with nothing selected downloaded the entire account. An
+  empty selection means "everything" to the sync client, and pressing Start
+  offered no hint of that, so a SharePoint library began pulling its whole
+  archive with every checkbox unticked. Starting without a selection is now
+  refused until the full download is accepted explicitly; the two "sync
+  everything" buttons carry that acceptance, because choosing them is the
+  acceptance.
+- The folder list could not read the client's database while an account was
+  running. The client holds a lock, and opening read-only is not enough against
+  it, so the list quietly fell back to weaker sources and showed fewer folders
+  than exist. It reads from a copy now and no longer contends for the lock.
+- Folders that had just been downloaded were marked as existing only on this
+  server. With the database unreadable, no online source had anything to say,
+  and everything on disk looked local-only. Nothing is claimed unless an online
+  source actually answered.
+
 ## [0.5.0] - 2026-08-27
 
 Findings from an independent review by a second model (OpenAI Codex), which had

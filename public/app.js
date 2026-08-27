@@ -106,6 +106,9 @@ export const en = {
   "account.stoppedAfterExit": "Last run ended with {exit}. Check the log before starting again.",
 
   "action.start": "Start",
+  "start.noSelectionConfirm":
+    "Nothing is selected for {name}, and an empty selection means the whole "
+    + "account. Everything in it will be downloaded to this server. Continue?",
   "action.stop": "Stop",
   "action.signIn": "Sign in",
   "action.logs": "Log",
@@ -927,7 +930,19 @@ function updateSummary(card, instance) {
   } else {
     actions.append(
       actionButton(t("action.start"), "primary", async () => {
-        await api(`/api/instances/${instance.id}/start`, { method: "POST" });
+        // The server refuses to start an account with no selection unless the
+        // full download is accepted explicitly, because an empty selection
+        // means the entire account to the sync client.
+        try {
+          await api(`/api/instances/${instance.id}/start`, { method: "POST" });
+        } catch (err) {
+          if (err.message !== "selection-empty") throw err;
+          if (!window.confirm(t("start.noSelectionConfirm", { name: instance.name }))) return;
+          await api(`/api/instances/${instance.id}/start`, {
+            method: "POST",
+            body: { acceptFullSync: true },
+          });
+        }
         scheduleRefresh();
       })
     );
@@ -1635,7 +1650,11 @@ function buildSetupChoice(card, instance) {
       openFoldersPanel(card, instance.id, { reopen: true })
     );
     const takeAll = actionButton(t("setup.syncAll"), "", async () => {
-      await api(`/api/instances/${instance.id}/start`, { method: "POST" });
+      // This button IS the acceptance, so it carries it.
+      await api(`/api/instances/${instance.id}/start`, {
+        method: "POST",
+        body: { acceptFullSync: true },
+      });
       scheduleRefresh();
     });
     actions.append(choose, takeAll);
@@ -1649,7 +1668,10 @@ function buildSetupChoice(card, instance) {
       scheduleRefresh();
     });
     const syncAll = actionButton(t("setup.syncAll"), "", async () => {
-      await api(`/api/instances/${instance.id}/start`, { method: "POST" });
+      await api(`/api/instances/${instance.id}/start`, {
+        method: "POST",
+        body: { acceptFullSync: true },
+      });
       scheduleRefresh();
     });
     // No third "choose folders" button: the selection is not an alternative to

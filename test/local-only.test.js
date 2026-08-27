@@ -79,3 +79,16 @@ test("the flag is set on every node, never left undefined", () => {
   };
   walk(res.folders);
 });
+
+test("with no online source, nothing is claimed to be local-only", async () => {
+  // Seen in real use: the client held its database lock, every online source
+  // came back empty, and the list then marked folders that had just been
+  // downloaded from SharePoint as existing only on this server.
+  const bare = env.instances.createInstance({ name: "Bare Account", type: "personal" });
+  const { mkdirSync } = await import("node:fs");
+  mkdirSync(join(env.config.instanceDataDir(bare.folder), "Downloaded"), { recursive: true });
+
+  const res = foldertree.readFolderTree(bare);
+  assert.equal(res.available, true, "the local folders are still listed");
+  assert.equal(find(res.folders, "Downloaded").localOnly, false, "but nothing is claimed");
+});
