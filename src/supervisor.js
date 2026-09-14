@@ -80,6 +80,7 @@ const STOP_GRACE_MS = 15_000;
  * @property {boolean} resyncPending Whether the next start must add --resync.
  * @property {boolean} resyncRecoveryUsed Whether the one-shot resync recovery was already spent.
  * @property {boolean} stopRequested Whether this supervisor asked the client to stop.
+ * @property {boolean} held Whether the client must not be started, see hold().
  * @property {Array<() => void>} exitWaiters Resolvers waiting for the process to be gone.
  * @property {Set<string>} localSkips Local paths the selection excludes from upload.
  * @property {ReturnType<typeof createRingBuffer>} buffer Recent client output.
@@ -98,6 +99,7 @@ function runnerFor(id) {
   if (!state) {
     state = {
       child: null,
+      held: false,
       wantRunning: false,
       intentionalRestart: false,
       startedAt: 0,
@@ -219,6 +221,13 @@ export function start(instance, opts = {}) {
  */
 function spawnClient(instance) {
   const state = runnerFor(instance.id);
+  // Every start ends up here: Start, restart, the backoff timer and the resync
+  // recovery. A held account defers all of them until it is released.
+  if (state.held) {
+    record(instance.id, "[station] start deferred until the folder listing is done");
+    announce(instance.id);
+    return;
+  }
   const args = [...baseArgs(instance), "--monitor", "--verbose"];
 
   // A resync is a one-shot request: it applies to this start only, and
@@ -448,6 +457,56 @@ export function restart(instance, opts = {}) {
   const gone = new Promise((resolve) => state.exitWaiters.push(resolve));
   signalStop(state, instance.id);
   return gone;
+}
+
+/**
+ * Keep the client of an instance stopped while something else needs its
+ * config directory, the dry run of a folder listing.
+ *
+ * Stopping alone is not enough: a client in its restart backoff has a timer
+ * armed, and a Start, a restart after saving the selection or the resync
+ * recovery can all bring it back while the directory is in use. While held,
+ * none of them starts a process; what the account should do afterwards is kept
+ * in wantRunning, and release() acts on it. A Stop during the hold therefore
+ * still means stopped.
+ * @param {string} id Instance id.
+ * @returns {Promise<void>} Resolves once no client process of the instance is running.
+ */
+export function hold(id) {
+  const state = runnerFor(id);
+  state.held = true;
+  clearTimer(state, "restartTimer");
+  if (!state.child) {
+    announce(id);
+    return Promise.resolve();
+  }
+  // Not a crash: without this the exit would count as a failed start and push
+  // the account into a backoff.
+  state.intentionalRestart = true;
+  record(id, "[station] pausing the client while the folder list is read");
+  const gone = new Promise((resolve) => state.exitWaiters.push(resolve));
+  signalStop(state, id);
+  return gone;
+}
+
+/**
+ * End a hold and start the client again if the account is meant to run.
+ * @param {string} id Instance id.
+ * @param {{instance?: object|null, resync?: boolean}} [opts] The current instance
+ *   record, absent when it was deleted meanwhile, and whether the start needs
+ *   --resync.
+ * @returns {void}
+ */
+export function release(id, opts = {}) {
+  const state = runnerFor(id);
+  state.held = false;
+  if (!opts.instance || !state.wantRunning || state.child) {
+    announce(id);
+    return;
+  }
+  if (opts.resync) state.resyncPending = true;
+  clearTimer(state, "restartTimer");
+  spawnClient(opts.instance);
 }
 
 /**

@@ -92,6 +92,9 @@ let unrendered;
 try {
   loadSettings();
   unrendered = instances.renderAllClientConfigs();
+  // Before anything starts: an account left without its selection by an
+  // interrupted dry run would otherwise sync the whole drive.
+  for (const instance of instances.listInstances()) discovery.recoverSelection(instance);
 } catch (err) {
   log.error("cannot start", { reason: err.message });
   process.exit(1);
@@ -117,8 +120,7 @@ async function shutdown(signal) {
   if (shuttingDown) return;
   shuttingDown = true;
   log.info("shutting down", { signal });
-  discovery.stopAll();
-  await supervisor.stopAll();
+  await Promise.all([discovery.stopAll(), supervisor.stopAll()]);
   await app.close();
   process.exit(0);
 }

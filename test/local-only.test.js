@@ -36,10 +36,14 @@ before(async () => {
   foldertree = await import("../src/foldertree.js");
   instance = env.instances.createInstance({ name: "Mixed Account", type: "personal" });
 
-  // Known online, reported by a discovery run.
+  // Known online, from a complete listing as Microsoft Graph produces it.
   writeFileSync(
     join(env.config.instanceConfDir(instance.id), "discovered-folders.json"),
-    JSON.stringify({ at: "2026-08-26T00:00:00Z", folders: ["Apfelbaum", "Apfelbaum/Birnenbaum"] })
+    JSON.stringify({
+      at: "2026-08-26T00:00:00Z",
+      complete: true,
+      folders: ["Apfelbaum", "Apfelbaum/Birnenbaum"],
+    })
   );
 
   // On disk: one that is also online, one that only exists here.
@@ -91,4 +95,39 @@ test("with no online source, nothing is claimed to be local-only", async () => {
   const res = foldertree.readFolderTree(bare);
   assert.equal(res.available, true, "the local folders are still listed");
   assert.equal(find(res.folders, "Downloaded").localOnly, false, "but nothing is claimed");
+});
+
+test("a synced folder missing from an incomplete listing is not marked", () => {
+  // Issue #4. "Reload list" replaces the stored listing, and a discovery run
+  // only names folders that are missing locally. Once /Scans/ is downloaded it
+  // drops out of the listing, and right after a resync the client's cache is
+  // still empty, so nothing online names it while other folders are known.
+  const account = env.instances.createInstance({ name: "Reloaded Account", type: "business" });
+  writeFileSync(
+    join(env.config.instanceConfDir(account.id), "discovered-folders.json"),
+    JSON.stringify({ at: "2026-09-14T20:01:01Z", folders: ["Anlagen", "Bilder"] })
+  );
+  const data = env.config.instanceDataDir(account.folder);
+  mkdirSync(join(data, "Scans"), { recursive: true });
+
+  const res = foldertree.readFolderTree(account);
+  const scans = find(res.folders, "Scans");
+  assert.ok(scans, "the synced folder is listed");
+  assert.equal(scans.localOnly, false, "a listing that cannot be complete must not claim local-only");
+});
+
+test("nothing below a shared folder is marked, its contents are not in the listing", () => {
+  const account = env.instances.createInstance({ name: "Shared Account", type: "personal" });
+  writeFileSync(
+    join(env.config.instanceConfDir(account.id), "discovered-folders.json"),
+    JSON.stringify({ at: "2026-09-14T22:00:00Z", complete: true, folders: ["Geteilt"], remote: ["Geteilt"] })
+  );
+  const data = env.config.instanceDataDir(account.folder);
+  mkdirSync(join(data, "Geteilt", "Unterordner"), { recursive: true });
+  mkdirSync(join(data, "Nur hier"), { recursive: true });
+
+  const res = foldertree.readFolderTree(account);
+  assert.equal(find(res.folders, "Unterordner").localOnly, false);
+  // The rule still applies everywhere else.
+  assert.equal(find(res.folders, "Nur hier").localOnly, true);
 });

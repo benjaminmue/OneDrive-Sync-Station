@@ -378,6 +378,12 @@ export async function createApp() {
     if (!instances.isAuthenticated(instance)) {
       return reply.code(409).send({ error: "not-authenticated" });
     }
+    // The dry-run fallback of a folder listing holds the config directory, and
+    // it has the selection moved aside: a client started now would see no
+    // selection, which means the whole account.
+    if (discovery.holdsClient(instance.id)) {
+      return reply.code(409).send({ error: "discovery-running" });
+    }
     // An empty selection means "everything" to the client, and on a large
     // account that is gigabytes nobody asked for. The station promises that
     // nothing downloads unbidden, so starting without a selection has to be
@@ -404,6 +410,12 @@ export async function createApp() {
     const instance = instanceFromRequest(request);
     if (!instances.isAuthenticated(instance)) {
       return reply.code(409).send({ error: "not-authenticated" });
+    }
+    // The dry-run fallback of a folder listing holds the config directory, and
+    // it has the selection moved aside: a client started now would see no
+    // selection, which means the whole account.
+    if (discovery.holdsClient(instance.id)) {
+      return reply.code(409).send({ error: "discovery-running" });
     }
     await supervisor.restart(instance, { resync: validate.boolean(request.body?.resync) });
     return supervisor.status(instance.id);
@@ -448,8 +460,8 @@ export async function createApp() {
     synclist.read(instanceFromRequest(request))
   );
 
-  // The folder listing comes from the client's own item cache, so it needs no
-  // token of its own and stays available while the client is running.
+  // Reads what the last discovery run stored plus the client's item cache and
+  // the data directory; no request to Microsoft happens here.
   app.get("/api/instances/:id/folders", async (request) => {
     const instance = instanceFromRequest(request);
     return {
@@ -466,27 +478,10 @@ export async function createApp() {
       return reply.code(409).send({ error: "not-authenticated" });
     }
 
-    // A sync client and a discovery run cannot share a config directory, so a
-    // running account is paused for the duration. It resumes on its own when
-    // the run ends, because the alternative is refusing to refresh the list of
-    // a working account, which is when people most want to add a folder.
-    const wasRunning = supervisor.status(instance.id).running;
-    await supervisor.stop(instance.id);
+    // Graph leaves a running account alone. Only the dry-run fallback needs the
+    // client stopped, and the run holds and resumes it on its own.
     const started = discovery.start(instance);
-
-    if (wasRunning) {
-      const resume = ({ id, running: stillRunning }) => {
-        if (id !== instance.id || stillRunning) return;
-        discovery.events.off("discovery", resume);
-        // With --resync from the outset. The run moved the selection aside and
-        // put it back, which the client counts as two configuration changes and
-        // answers with EXIT_RESYNC_REQUIRED. Granting it up front costs one
-        // resync either way and avoids two failed starts on the way there.
-        supervisor.start(instances.requireInstance(instance.id), { resync: true });
-      };
-      discovery.events.on("discovery", resume);
-    }
-    return { ...started, resumesAfter: wasRunning };
+    return started;
   });
 
   app.post("/api/instances/:id/discover/stop", async (request) => {

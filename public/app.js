@@ -256,9 +256,6 @@ export const en = {
   "setup.ready":
     "The folder list is ready. Open Folders, tick what you want, save, and then " +
     "press Start.",
-  "picker.sourceDiscovery":
-    "Listing what Microsoft reports for this account. Nothing has been " +
-    "downloaded yet.",
   "picker.discovering":
     "Still looking at the account. The list appears when that finishes; the log " +
     "shows the progress.",
@@ -420,6 +417,7 @@ export const en = {
   "errors.not-authenticated": "This account is not signed in to Microsoft yet.",
   "errors.cross-origin-request": "The request did not come from this web UI and was refused.",
   "errors.repair-running": "A permission repair of this account is already running.",
+  "errors.discovery-running": "The folder list is still being read. Start the account once it is done.",
   "errors.already-configured": "A password is already configured.",
   "errors.already-exists": "An account with this name already exists.",
   "errors.required": "This field is required.",
@@ -816,10 +814,10 @@ function formatExit(lastExit) {
 function statusFor(instance) {
   const rt = instance.runtime;
 
-  // Work in progress outranks everything below, because the client process is
-  // stopped during a discovery run and during a sign-in: reporting "Stopped"
-  // while the card itself says it is fetching the folder list is the one
-  // reading that is plainly wrong.
+  // Work in progress outranks everything below. During a sign-in, and during
+  // the dry-run fallback of a folder listing, the client process is stopped:
+  // reporting "Stopped" while the card itself says it is fetching the folder
+  // list is the one reading that is plainly wrong.
   if (instance.signInPending) {
     return { cls: "busy", label: t("status.signingIn"), alert: null, busy: true };
   }
@@ -1867,9 +1865,6 @@ function buildFolderPicker(id, textarea, opts = {}) {
       if (res.source === "local-files") {
         parts.unshift(el("p", { text: t("picker.sourceLocal"), className: "hint" }));
       }
-      if (res.source === "discovery") {
-        parts.unshift(el("p", { text: t("picker.sourceDiscovery"), className: "hint" }));
-      }
       if (res.truncated) parts.push(el("p", { text: t("picker.truncated"), className: "hint" }));
       body.replaceChildren(...parts);
     } catch (err) {
@@ -1886,12 +1881,10 @@ function buildFolderPicker(id, textarea, opts = {}) {
     const account = model.get(id);
     // Re-reading the stored list would only show the same snapshot again: a
     // folder created in OneDrive after the last fetch cannot be in it. So the
-    // list is fetched from Microsoft again. Not while a client is running,
-    // though: its own item cache is then the fresher source, and a second
-    // client on the same config directory is not allowed in any case.
-    // Also while the account is running: its item cache only knows the folders
-    // the selection already includes, so it cannot show what could be added.
-    // The account is paused for the run and resumes by itself.
+    // list is read from Microsoft again, also while the account is running: its
+    // item cache only knows the folders the selection already includes, so it
+    // cannot show what could be added. Reading from Graph leaves the account
+    // running; only the dry-run fallback pauses it, and it resumes by itself.
     if (account && !account.discovering) {
       reload.disabled = true;
       body.replaceChildren(el("p", { text: t("picker.discovering"), className: "hint" }));

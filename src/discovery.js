@@ -6,20 +6,23 @@
 // files. On an account with twelve thousand files that means gigabytes arrive
 // before the user has had a chance to say what they wanted.
 //
-// A dry run resolves it. The client fetches the full /delta response, records
-// what it found, reports what it would do, and transfers nothing. It even keeps
-// that state in a separate database (items-dryrun.sqlite3), so the real sync
-// state is untouched.
+// The folder tree is read from Microsoft Graph first (graph.js): a few page
+// requests, no download, and a running sync client is left alone. Only when
+// that fails does it fall back to a dry run of the client, which fetches the
+// same /delta response, reports what it would do and transfers nothing, but
+// walks every file on the way and takes minutes on a large account.
 
 import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { join } from "node:path";
-import { existsSync, renameSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, renameSync, rmSync } from "node:fs";
 import { baseArgs, clientCommand } from "./onedrive.js";
 import { instanceConfDir } from "./config.js";
 import { writeFileAtomic } from "./storage.js";
-import { appendLog } from "./supervisor.js";
+import { appendLog, hold, release } from "./supervisor.js";
+import { getInstance } from "./instances.js";
 import { log } from "./logger.js";
+import * as graph from "./graph.js";
 
 /** Where a completed run leaves the folders it found. */
 export const DISCOVERED_FILE = "discovered-folders.json";
@@ -46,10 +49,31 @@ const SELECTION_PARKED = "sync_list.discovery-backup";
  * @returns {string} Absolute path to write the selection to.
  */
 export function selectionWritePath(instance) {
+  // Decided by the run, not by the file: a parked copy left behind by a crash
+  // must not swallow saves while a Graph run, which never parks, is going.
+  const parkedByRun = running.get(instance.id)?.parked === true;
+  return join(instanceConfDir(instance.id), parkedByRun ? SELECTION_PARKED : SELECTION_FILE);
+}
+
+/**
+ * Put back a selection that an interrupted run left parked.
+ *
+ * A dry run moves the selection aside and restores it at the end. If the
+ * station stops in between, the account is left without a selection, which to
+ * the client means the whole account. Called at start-up and before every run.
+ * @param {object} instance Instance record.
+ * @returns {void}
+ */
+export function recoverSelection(instance) {
+  if (running.get(instance.id)?.parked) return;
   const confDir = instanceConfDir(instance.id);
+  const active = join(confDir, SELECTION_FILE);
   const parked = join(confDir, SELECTION_PARKED);
-  const parkedByRun = isRunning(instance.id) && existsSync(parked);
-  return join(confDir, parkedByRun ? SELECTION_PARKED : SELECTION_FILE);
+  if (!existsSync(parked)) return;
+  // A leftover wins only over a missing selection. If both exist, the active
+  // one was saved after the interruption and is the newer choice.
+  if (existsSync(active)) rmSync(parked, { force: true });
+  else renameSync(parked, active);
 }
 
 /**
@@ -60,10 +84,6 @@ export function selectionWritePath(instance) {
 function parkSelection(confDir) {
   const active = join(confDir, SELECTION_FILE);
   const parked = join(confDir, SELECTION_PARKED);
-  // A leftover from an interrupted run wins: it is the real selection.
-  if (existsSync(parked) && !existsSync(active)) {
-    renameSync(parked, active);
-  }
   if (!existsSync(active)) return false;
   rmSync(parked, { force: true });
   renameSync(active, parked);
@@ -115,14 +135,17 @@ export function parseFolderLines(chunk) {
 export const events = new EventEmitter();
 events.setMaxListeners(100);
 
-/** A discovery run on a large account takes minutes, not seconds. */
-const DISCOVERY_TIMEOUT_MS = 30 * 60_000;
+/** A dry run on a large account takes minutes, not seconds. */
+const DRY_RUN_TIMEOUT_MS = 30 * 60_000;
 
 /**
  * @typedef {object} DiscoveryRun
- * @property {import("node:child_process").ChildProcess} child The running client.
  * @property {number} startedAt Epoch ms when it began.
- * @property {NodeJS.Timeout} timeout Gives up on a run that never ends.
+ * @property {boolean} cancelled Set by stop(), so a cancelled run does not fall back.
+ * @property {boolean} parked Whether the dry run currently holds the selection.
+ * @property {boolean} dryRun Whether the run has moved on to the dry run, which needs the config directory to itself.
+ * @property {() => void} cancel Aborts whatever the run is doing at the moment.
+ * @property {Promise<void>} ended Resolves when the run has finished.
  */
 
 /** @type {Map<string, DiscoveryRun>} */
@@ -138,6 +161,17 @@ export function isRunning(id) {
 }
 
 /**
+ * Whether a discovery run needs the account's config directory to itself, so
+ * the sync client must not be started. True only during the dry-run fallback;
+ * reading from Graph leaves the client free to run.
+ * @param {string} id Instance id.
+ * @returns {boolean} True while the client has to stay stopped.
+ */
+export function holdsClient(id) {
+  return running.get(id)?.dryRun === true;
+}
+
+/**
  * State of the discovery run of an instance.
  * @param {string} id Instance id.
  * @returns {{running: boolean, startedAt: number}} Current state.
@@ -148,11 +182,175 @@ export function status(id) {
 }
 
 /**
+ * Store a folder listing for the folder tree.
+ *
+ * `complete` says whether the listing names every folder of the account. Only
+ * a complete one may be used to call a folder "only here": a dry run names
+ * just the folders missing locally, so a synced folder would look local (#4).
+ * `remote` lists the folders shared in from other drives, whose contents a
+ * complete listing still does not include.
+ *
+ * A dry run after a failed Graph run does not throw away a complete listing: its
+ * folders are added to it, which can only make fewer folders look local.
+ * @param {object} instance Instance record.
+ * @param {{folders: string[], complete: boolean, remote?: string[]}} listing What was found.
+ * @returns {boolean} Whether the listing was stored.
+ */
+function storeListing(instance, listing) {
+  const file = join(instanceConfDir(instance.id), DISCOVERED_FILE);
+  let stored = { complete: listing.complete, folders: listing.folders, remote: listing.remote ?? [] };
+  if (!listing.complete) {
+    try {
+      const previous = JSON.parse(readFileSync(file, "utf8"));
+      if (previous?.complete === true && Array.isArray(previous.folders)) {
+        stored = {
+          complete: true,
+          folders: [...new Set([...previous.folders, ...listing.folders])],
+          remote: Array.isArray(previous.remote) ? previous.remote : [],
+        };
+      }
+    } catch {
+      // No previous listing, or an unreadable one: store this one as it is.
+    }
+  }
+  try {
+    writeFileAtomic(file, JSON.stringify({ at: new Date().toISOString(), ...stored }, null, 2), { mode: 0o600 });
+    return true;
+  } catch (err) {
+    log.warn("could not store the discovered folders", { instance: instance.id, err: err.message });
+    return false;
+  }
+}
+
+/**
+ * List the folders with the sync client's dry run, the slow fallback.
+ *
+ * No sync client of this instance may run meanwhile: both would hold the same
+ * config directory.
+ * @param {object} instance Instance record.
+ * @param {DiscoveryRun} run The run this belongs to.
+ * @returns {Promise<boolean>} Whether the client finished cleanly.
+ */
+function dryRun(instance, run) {
+  return new Promise((resolve) => {
+    // Run without the folder selection, otherwise the listing shows only what
+    // is already selected and the folders the user might want to add stay
+    // invisible.
+    const confDir = instanceConfDir(instance.id);
+    run.parked = parkSelection(confDir);
+    const parkedSelection = run.parked;
+
+    // --dry-run makes the client report instead of transfer, and it keeps its
+    // findings in a separate database, so nothing about the real sync state
+    // changes. --resync is required alongside it here because the configuration
+    // has just been written, and the client refuses to start otherwise.
+    const args = [...baseArgs(instance), "--sync", "--dry-run", "--resync", "--resync-auth", "--verbose"];
+    const invocation = clientCommand(args);
+    const child = spawn(invocation.command, invocation.args, { stdio: ["ignore", "pipe", "pipe"] });
+    run.cancel = () => child.kill("SIGINT");
+
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    // Collected as the run goes: the folders are only ever visible in this
+    // output, so they have to be picked up while it streams past.
+    const folders = new Set();
+    const collect = (chunk) => {
+      appendLog(instance.id, chunk);
+      for (const path of parseFolderLines(chunk)) folders.add(path);
+    };
+    child.stdout.on("data", collect);
+    child.stderr.on("data", collect);
+
+    const timeout = setTimeout(() => {
+      appendLog(instance.id, "[station] folder discovery took too long and was stopped");
+      child.kill("SIGINT");
+    }, DRY_RUN_TIMEOUT_MS);
+
+    let done = false;
+    const finish = (ok) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timeout);
+      if (parkedSelection) restoreSelection(confDir);
+      run.parked = false;
+      // Written even on a partial run: half a listing is still better than
+      // none, and the user can start the discovery again.
+      const stored = folders.size ? storeListing(instance, { folders: [...folders], complete: false }) : true;
+      resolve(ok && stored);
+    };
+    child.on("error", (err) => {
+      appendLog(instance.id, `[station] could not start folder discovery: ${err.message}`);
+      finish(false);
+    });
+    child.on("close", (code) => finish(code === 0));
+  });
+}
+
+/**
+ * Read the folder list, from Graph if possible and from a dry run otherwise.
+ * @param {object} instance Instance record.
+ * @param {DiscoveryRun} run The run this belongs to.
+ * @returns {Promise<boolean>} Whether a listing was produced cleanly.
+ */
+async function discover(instance, run) {
+  recoverSelection(instance);
+  const controller = new AbortController();
+  run.cancel = () => controller.abort();
+  const began = Date.now();
+  try {
+    const result = await graph.listFolders(instance, { signal: controller.signal });
+    const stored = storeListing(instance, { folders: result.folders, complete: true, remote: result.remote });
+    const seconds = ((Date.now() - began) / 1000).toFixed(1);
+    appendLog(
+      instance.id,
+      `[station] read ${result.folders.length} folders from Microsoft Graph in ${seconds} s`
+    );
+    log.info("folder list read from graph", {
+      instance: instance.id,
+      folders: result.folders.length,
+      items: result.items,
+      pages: result.pages,
+      ms: Date.now() - began,
+    });
+    return stored;
+  } catch (err) {
+    if (run.cancelled) return false;
+    const reason = err instanceof graph.GraphError ? err.message : "error";
+    appendLog(
+      instance.id,
+      `[station] Microsoft Graph could not list the folders (${reason}), using a dry run of the sync client instead, which takes longer`
+    );
+    log.warn("graph folder listing failed, falling back to a dry run", {
+      instance: instance.id,
+      reason: err.message,
+    });
+  }
+
+  // Only the fallback needs the client stopped. The flag goes up first, so the
+  // API refuses a Start from this moment, and the supervisor's hold keeps every
+  // other way of starting the client (restart timers, a restart after saving
+  // the selection) from bringing it back before release.
+  run.dryRun = true;
+  await hold(instance.id);
+  try {
+    if (run.cancelled) return false;
+    return await dryRun(instance, run);
+  } finally {
+    // With --resync: the dry run moved the selection aside and put it back,
+    // which the client counts as two configuration changes and answers with
+    // EXIT_RESYNC_REQUIRED. Nothing starts unless the account is meant to run,
+    // so a Stop in the meantime, or a shutdown, is respected.
+    release(instance.id, { instance: getInstance(instance.id), resync: true });
+  }
+}
+
+/**
  * Start a discovery run.
  *
- * The caller must ensure no sync client of this instance is running: both would
- * hold the same config directory. Idempotent, so a second click does not spawn
- * a second run.
+ * Idempotent, so a second click does not start a second run. The run reads the
+ * folder tree from Microsoft Graph, which leaves a running sync client alone.
+ * Only if that fails does it fall back to a dry run of the client, holding the
+ * client stopped for as long as that takes and resuming it afterwards.
  *
  * @param {object} instance Instance record.
  * @returns {{started: boolean}} Whether this call started a run.
@@ -160,55 +358,24 @@ export function status(id) {
 export function start(instance) {
   if (running.has(instance.id)) return { started: false };
 
-  // Run without the folder selection, otherwise the listing shows only what is
-  // already selected and the folders the user might want to add stay invisible.
-  const confDir = instanceConfDir(instance.id);
-  const parkedSelection = parkSelection(confDir);
-
-  // --dry-run makes the client report instead of transfer, and it keeps its
-  // findings in a separate database, so nothing about the real sync state
-  // changes. --resync is required alongside it here because the configuration
-  // has just been written, and the client refuses to start otherwise.
-  const args = [...baseArgs(instance), "--sync", "--dry-run", "--resync", "--resync-auth", "--verbose"];
-  const invocation = clientCommand(args);
-  const child = spawn(invocation.command, invocation.args, { stdio: ["ignore", "pipe", "pipe"] });
-
-  child.stdout.setEncoding("utf8");
-  child.stderr.setEncoding("utf8");
-  // Collected as the run goes: the folders are only ever visible in this
-  // output, so they have to be picked up while it streams past.
-  const folders = new Set();
-  const collect = (chunk) => {
-    appendLog(instance.id, chunk);
-    for (const path of parseFolderLines(chunk)) folders.add(path);
+  let ended;
+  /** @type {DiscoveryRun} */
+  const run = {
+    startedAt: Date.now(),
+    cancelled: false,
+    parked: false,
+    dryRun: false,
+    cancel: () => {},
+    ended: new Promise((resolve) => (ended = resolve)),
   };
-  child.stdout.on("data", collect);
-  child.stderr.on("data", collect);
+  running.set(instance.id, run);
+  appendLog(instance.id, "[station] reading the folder list, nothing is downloaded");
+  log.info("discovery started", { instance: instance.id });
+  events.emit("discovery", { id: instance.id, running: true });
 
   const finish = (ok) => {
-    const run = running.get(instance.id);
-    if (!run || run.child !== child) return;
-    clearTimeout(run.timeout);
+    if (running.get(instance.id) !== run) return;
     running.delete(instance.id);
-    if (parkedSelection) restoreSelection(confDir);
-
-    // Written even on a partial run: half a listing is still better than none,
-    // and the user can start the discovery again.
-    if (folders.size) {
-      try {
-        writeFileAtomic(
-          join(instanceConfDir(instance.id), DISCOVERED_FILE),
-          JSON.stringify({ at: new Date().toISOString(), folders: [...folders] }, null, 2),
-          { mode: 0o600 }
-        );
-      } catch (err) {
-        log.warn("could not store the discovered folders", {
-          instance: instance.id,
-          err: err.message,
-        });
-      }
-    }
-
     appendLog(
       instance.id,
       ok
@@ -217,23 +384,12 @@ export function start(instance) {
     );
     log.info("discovery finished", { instance: instance.id, ok });
     events.emit("discovery", { id: instance.id, running: false, ok });
+    ended();
   };
-
-  child.on("error", (err) => {
-    appendLog(instance.id, `[station] could not start folder discovery: ${err.message}`);
+  discover(instance, run).then(finish, (err) => {
+    log.error("discovery failed", { instance: instance.id, err: err.message });
     finish(false);
   });
-  child.on("close", (code) => finish(code === 0));
-
-  const timeout = setTimeout(() => {
-    appendLog(instance.id, "[station] folder discovery took too long and was stopped");
-    child.kill("SIGINT");
-  }, DISCOVERY_TIMEOUT_MS);
-
-  running.set(instance.id, { child, startedAt: Date.now(), timeout });
-  appendLog(instance.id, "[station] looking at the account without downloading anything");
-  log.info("discovery started", { instance: instance.id });
-  events.emit("discovery", { id: instance.id, running: true });
   return { started: true };
 }
 
@@ -245,13 +401,18 @@ export function start(instance) {
 export function stop(id) {
   const run = running.get(id);
   if (!run) return;
-  run.child.kill("SIGINT");
+  run.cancelled = true;
+  run.cancel();
 }
 
 /**
  * Stop every discovery run, for shutdown.
- * @returns {void}
+ * @returns {Promise<void>} Resolves when every run has ended.
  */
 export function stopAll() {
+  const ending = [...running.values()].map((run) => run.ended);
   for (const id of running.keys()) stop(id);
+  // Awaited on shutdown: a dry run puts the selection back when it ends, and
+  // exiting before that leaves the account without one.
+  return Promise.all(ending).then(() => {});
 }

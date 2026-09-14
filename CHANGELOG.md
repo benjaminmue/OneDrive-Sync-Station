@@ -8,6 +8,39 @@ Every published image carries a version. The header of the web UI shows it
 together with the commit the image was built from, so it is always possible to
 tell which build is running.
 
+## [0.7.0] - unreleased
+
+### Changed
+
+- The folder list is read from Microsoft Graph. It used to come from a dry run
+  of the sync client, which fetches the account's changes and then walks every
+  single file as if it were downloading it; on a personal account with a few
+  thousand files the list took more than a quarter of an hour (#3). Graph
+  delivers the folders in a few requests, including the ones already synced,
+  which the dry run left out. Folders inside a folder shared into the account
+  are not listed; the shared folder itself is. The station redeems the client's
+  refresh token for an access token held in memory only; the token file is never
+  written, which is safe because Microsoft does not revoke a refresh token when
+  it is redeemed. The dry run remains as the fallback when Graph fails.
+- Reloading the folder list no longer pauses a running account. Only the
+  dry-run fallback still needs the client stopped.
+
+### Fixed
+
+- A synced folder could be marked "only here" although it exists in OneDrive
+  (#4). A dry run names only the folders missing locally, and reloading the list
+  replaced the stored one, so a folder dropped out of it once it was downloaded;
+  right after a resync the client's cache was empty as well. The marker is now
+  shown only against a list read from Graph, which names every folder, and
+  never inside a shared folder.
+- A client waiting out its restart backoff was not stopped before a dry run of
+  the folder list, so its timer could start it in the middle of the run, on the
+  same config directory and without a selection, which means the whole account.
+  Start and restart are also refused while such a run holds the account.
+- A selection moved aside by a dry run that was interrupted, for example by a
+  container stop, is put back when the station starts. Shutting down now waits
+  for a running dry run to put the selection back itself.
+
 ## [0.6.1] - 2026-09-14
 
 ### Security
