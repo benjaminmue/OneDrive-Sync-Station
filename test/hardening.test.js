@@ -210,3 +210,81 @@ test("the unauthenticated state endpoint reveals nothing about the host", async 
   assert.equal(state.instanceCount, undefined);
   assert.ok(state.version);
 });
+
+test("an encoded path does not slip past the session check", async () => {
+  // The router decodes the path, so these all reach API routes. The session
+  // check once looked at the raw URL and let every one of them through.
+  const attempts = [
+    ["GET", "/%61pi/instances"],
+    ["GET", "/%61%70%69/instances"],
+    ["GET", "/api%2Finstances"],
+    ["GET", "/%61pi/state/../instances"],
+    ["POST", "/%61pi/instances/work/stop"],
+    ["GET", "/%61pi/events"],
+  ];
+  for (const [method, url] of attempts) {
+    const res = await app.inject({ method, url });
+    assert.ok(
+      res.statusCode === 401 || res.statusCode === 404 || res.statusCode === 403,
+      `${method} ${url} answered ${res.statusCode} without a session`
+    );
+    assert.ok(!res.body.includes('"id"'), `${method} ${url} returned account data`);
+  }
+  // The public routes stay public, encoded or not.
+  assert.equal((await app.inject({ url: "/%61pi/health" })).statusCode, 200);
+});
+
+test("changes from another origin are refused even with a valid session", async () => {
+  const post = (headers) =>
+    app.inject({
+      method: "POST",
+      url: "/api/instances/nobody/stop",
+      headers: { cookie, "content-type": "text/plain", ...headers },
+      payload: "x",
+    });
+
+  // Another service on the same host counts as same-site for the cookie.
+  assert.equal((await post({ "sec-fetch-site": "same-site" })).statusCode, 403);
+  assert.equal((await post({ "sec-fetch-site": "cross-site" })).statusCode, 403);
+  assert.equal((await post({ origin: "http://localhost:9999", host: "localhost:8080" })).statusCode, 403);
+  assert.equal((await post({ origin: "null", host: "localhost:8080" })).statusCode, 403);
+
+  // The web UI itself, and clients that are not browsers, get through to the
+  // route (which then refuses the unknown account).
+  assert.equal((await post({ "sec-fetch-site": "same-origin" })).statusCode, 400);
+  assert.equal((await post({ origin: "http://localhost:8080", host: "localhost:8080" })).statusCode, 400);
+  assert.equal((await post({})).statusCode, 400);
+  // Reading is never blocked.
+  const read = await app.inject({ url: "/api/instances", headers: { cookie, "sec-fetch-site": "cross-site" } });
+  assert.equal(read.statusCode, 200);
+});
+
+test("the origin check follows the public host only through a trusted proxy", async () => {
+  const { createApp } = await import("../src/app.js");
+  // An unknown account: past both checks the route answers 400.
+  const write = (target) =>
+    target.inject({
+      method: "POST",
+      url: "/api/instances/nobody/stop",
+      headers: {
+        cookie,
+        origin: "http://station.example",
+        host: "127.0.0.1:8080",
+        "x-forwarded-host": "station.example",
+      },
+    });
+
+  // Plain HTTP behind a proxy that rewrites Host: no Sec-Fetch-Site, and the
+  // browser's Origin names the public host the proxy forwards.
+  process.env.TRUSTED_PROXIES = "127.0.0.1";
+  const proxied = await createApp();
+  try {
+    assert.equal((await write(proxied)).statusCode, 400);
+  } finally {
+    delete process.env.TRUSTED_PROXIES;
+    await proxied.close();
+  }
+
+  // Without a trusted proxy the forwarded header is anyone's to set.
+  assert.equal((await write(app)).statusCode, 403);
+});

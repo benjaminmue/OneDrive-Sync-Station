@@ -418,6 +418,7 @@ export const en = {
   "errors.unauthorized": "Your session expired. Sign in again.",
   "errors.invalid-password": "Wrong password.",
   "errors.not-authenticated": "This account is not signed in to Microsoft yet.",
+  "errors.cross-origin-request": "The request did not come from this web UI and was refused.",
   "errors.repair-running": "A permission repair of this account is already running.",
   "errors.already-configured": "A password is already configured.",
   "errors.already-exists": "An account with this name already exists.",

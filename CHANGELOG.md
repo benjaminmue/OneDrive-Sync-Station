@@ -10,6 +10,22 @@ tell which build is running.
 
 ## [0.6.1] - 2026-09-14
 
+### Security
+
+- The API could be used without signing in. The session check compared the
+  raw request URL with `/api/`, while the router matches the decoded path, so
+  `/%61pi/instances` reached `/api/instances` with no session: account list,
+  client config, start, stop and every other API route. The check now uses the
+  route the router matched. Anyone who ran an earlier version where untrusted
+  devices can reach the web UI should treat the accounts as exposed and sign
+  them out and in again.
+- Requests that change something are refused when the browser reports another
+  origin. The session cookie is `SameSite=Lax`, which does not stop another web
+  service on the same host from sending it along with a plain form-like POST.
+- `@fastify/static` updated from 8.3.0 to 10.1.3 for four high-severity
+  advisories (path traversal and route guard bypass in the static file
+  handler).
+
 ### Fixed
 
 - Synced files could not be opened over an SMB share. The sync client sets

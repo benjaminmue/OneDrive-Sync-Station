@@ -47,6 +47,9 @@ const pkg = JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf8
 /** Routes reachable without a session. Everything else is gated. */
 const PUBLIC_ROUTES = new Set(["/api/health", "/api/state", "/api/setup-password", "/api/login"]);
 
+/** Methods that never change state, so they need no origin check. */
+const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+
 /** How much unsent event data a browser may accumulate before it is cut loose. */
 const SSE_BACKPRESSURE_LIMIT_BYTES = 1024 * 1024;
 
@@ -99,11 +102,44 @@ export async function createApp() {
     return reply.code(500).send({ error: "internal-error" });
   });
 
+  // The decision is made on the route the router actually matched, never on the
+  // raw URL. The router decodes the path and the raw URL is not decoded, so a
+  // check on request.url let `/%61pi/instances` reach /api/instances without a
+  // session. Anything that did not match an API route is the static web UI.
   app.addHook("preHandler", async (request, reply) => {
-    if (!request.url.startsWith("/api/")) return;
-    const path = request.url.split("?")[0];
-    if (PUBLIC_ROUTES.has(path)) return;
+    const route = request.routeOptions.url;
+    if (!route?.startsWith("/api/") || PUBLIC_ROUTES.has(route)) return;
     if (!isAuthed(request, reply)) return reply.code(401).send({ error: "unauthorized" });
+  });
+
+  // Requests that change something must come from the web UI itself. The
+  // session cookie is SameSite=Lax, which stops other sites but not another
+  // service on the same host under a different port: that counts as the same
+  // site, and a plain text/plain POST from it would carry the cookie. Browsers
+  // say where a request comes from in Sec-Fetch-Site, but only over HTTPS or
+  // to localhost; on plain HTTP in a LAN they still send Origin with every
+  // write. Neither header means no browser is involved (curl, scripts), and
+  // there is no ambient cookie to abuse. The Origin is compared with
+  // request.host, which follows X-Forwarded-Host only from TRUSTED_PROXIES, so
+  // a proxy that rewrites Host keeps working and nobody else can fake it.
+  app.addHook("onRequest", async (request, reply) => {
+    if (SAFE_METHODS.has(request.method)) return;
+    const site = request.headers["sec-fetch-site"];
+    if (site !== undefined) {
+      if (site === "same-origin" || site === "none") return;
+      return reply.code(403).send({ error: "cross-origin-request" });
+    }
+    const origin = request.headers.origin;
+    if (origin === undefined) return;
+    let originHost;
+    try {
+      originHost = new URL(origin).host;
+    } catch {
+      originHost = null;
+    }
+    if (originHost !== request.host) {
+      return reply.code(403).send({ error: "cross-origin-request" });
+    }
   });
 
   /**
