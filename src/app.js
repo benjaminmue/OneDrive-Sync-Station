@@ -33,6 +33,7 @@ import * as onedrive from "./onedrive.js";
 import * as authflow from "./authflow.js";
 import * as synclist from "./synclist.js";
 import * as foldertree from "./foldertree.js";
+import * as permissions from "./permissions.js";
 import * as discovery from "./discovery.js";
 import * as ratelimit from "./ratelimit.js";
 import * as validate from "./validate.js";
@@ -397,6 +398,12 @@ export async function createApp() {
 
   app.post("/api/instances/:id/dry-run", async (request) =>
     onedrive.dryRun(instanceFromRequest(request))
+  );
+
+  // Not a diagnostic, it changes files: a POST, and the walk holds a per-account
+  // lock so repeated clicks cannot pile up walks over a large share.
+  app.post("/api/instances/:id/repair-permissions", async (request) =>
+    permissions.repairDataModes(instanceFromRequest(request))
   );
 
   // --- sync_list ------------------------------------------------------------

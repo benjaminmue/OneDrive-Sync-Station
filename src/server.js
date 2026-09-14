@@ -57,11 +57,17 @@ function applyPasswordOverride() {
 
 /**
  * Start the clients of every instance that is signed in and set to auto start.
+ * @param {Set<string>} unrendered Instances whose client config could not be
+ *   written at start-up; they would run on an outdated file, so they wait.
  * @returns {void}
  */
-function startEnabledInstances() {
+function startEnabledInstances(unrendered) {
   for (const instance of instances.listInstances()) {
     if (!instance.autoStart) continue;
+    if (unrendered.has(instance.id)) {
+      log.warn("client config not written, not starting", { instance: instance.id });
+      continue;
+    }
     if (!instances.isAuthenticated(instance)) {
       log.info("instance not signed in, not starting", { instance: instance.id });
       continue;
@@ -82,9 +88,10 @@ ensureDirs();
 // A damaged state file makes both config.js and instances.js throw rather than
 // quietly continue with defaults. Catching it here turns that into one readable
 // line in the container log instead of an unhandled exception stack.
+let unrendered;
 try {
   loadSettings();
-  instances.listInstances();
+  unrendered = instances.renderAllClientConfigs();
 } catch (err) {
   log.error("cannot start", { reason: err.message });
   process.exit(1);
@@ -131,4 +138,4 @@ process.on("uncaughtException", (err) => {
 
 await app.listen({ port: WEBUI_PORT, host: "0.0.0.0" });
 log.info("station started", { port: WEBUI_PORT });
-startEnabledInstances();
+startEnabledInstances(unrendered);

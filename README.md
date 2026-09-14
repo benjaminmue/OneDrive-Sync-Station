@@ -182,6 +182,13 @@ in OneDrive. Use **Dry run** first to see what would happen.
 | `ADMIN_PASSWORD` | unset | Overwrites the web UI password on start, see below |
 | `FIX_PERMISSIONS` | `true` | Repair ownership drift on start |
 
+### Files over an SMB share
+
+With the defaults `PUID=99`, `PGID=100` and `UMASK=0002` synced files are
+created as 0664 and folders as 0775, so an Unraid share can open them. Versions
+up to 0.6.0 left downloads at 0600 and 0700 instead. For files downloaded back
+then, open the account's **Tools** tab and use **Repair file permissions** once.
+
 ### Lost the web UI password
 
 Set `ADMIN_PASSWORD` in the container template, restart, sign in, then remove

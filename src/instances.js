@@ -21,6 +21,7 @@ import {
 import { writeFileAtomic, readJsonFile } from "./storage.js";
 import * as validate from "./validate.js";
 import { ValidationError } from "./validate.js";
+import { log } from "./logger.js";
 
 const REGISTRY_FILE = join(CONFIG_DIR, "instances.json");
 
@@ -330,7 +331,9 @@ export function deleteInstance(id, opts = {}) {
  * @returns {string} The rendered config file contents.
  */
 export function writeClientConfig(instance) {
-  const o = instance.options;
+  // Defaults underneath: a registry written by an older version lacks options
+  // added since, and the file must not end up with a literal "undefined".
+  const o = { ...DEFAULT_OPTIONS, ...instance.options };
   /** @type {Array<[string, string|number|boolean]>} */
   const entries = [
     ["monitor_interval", o.monitorInterval],
@@ -343,6 +346,12 @@ export function writeClientConfig(instance) {
     ["sync_business_shared_items", o.syncBusinessSharedItems],
     ["rate_limit", o.rateLimit],
     ["threads", o.threads],
+    // Left to itself the client chmods every download to 0600 and every folder
+    // to 0700, which overrides UMASK and locks the files away from an SMB share
+    // even though the container runs as the share's user. With this key the
+    // client keeps the modes the process umask produces, so UMASK is the one
+    // setting that decides. It is not one of the options that demand a resync.
+    ["disable_permission_set", true],
   ];
   // Only written when enabled: the key changes which authorisation flow the
   // client uses, and leaving it at "false" in the file is the same as absent
@@ -368,6 +377,32 @@ export function writeClientConfig(instance) {
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   writeFileAtomic(join(dir, "config"), contents, { mode: 0o600 });
   return contents;
+}
+
+/**
+ * Render the client config of every instance again.
+ *
+ * The registry is the source of truth and the files are derived, but they are
+ * only written when an account is created or changed. Without this pass at
+ * start-up, a setting that a new version adds to the rendered config would
+ * never reach an existing account.
+ *
+ * One account whose directory cannot be written must not keep the station, and
+ * with it the UI to fix the problem, from starting. Its id is returned instead,
+ * so the caller can hold that account back rather than run it on a stale file.
+ * @returns {Set<string>} Ids of the instances whose config could not be written.
+ */
+export function renderAllClientConfigs() {
+  const failed = new Set();
+  for (const instance of listInstances()) {
+    try {
+      writeClientConfig(instance);
+    } catch (err) {
+      log.error("cannot write client config", { instance: instance.id, reason: err.message });
+      failed.add(instance.id);
+    }
+  }
+  return failed;
 }
 
 /**

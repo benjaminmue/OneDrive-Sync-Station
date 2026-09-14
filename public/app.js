@@ -329,6 +329,26 @@ export const en = {
   "tools.resyncHint":
     "Restarts the client with --resync: the account state is re-read from " +
     "Microsoft. Local files are not deleted.",
+  "tools.repairModes": "Repair file permissions",
+  "tools.repairModesHint":
+    "Versions up to 0.6.0 saved synced files readable by their owner only, so an " +
+    "SMB share could not open them. This sets files at exactly 0600 and folders " +
+    "at exactly 0700 in this account's folder to the modes UMASK gives. New " +
+    "downloads get those modes on their own.",
+  "tools.repairModesConfirm":
+    "Change every file at 0600 and every folder at 0700 in this account's folder " +
+    "to the UMASK modes? Anything you made private on purpose with those modes " +
+    "becomes readable as well.",
+  "tools.repairModesRunning": "Repairing permissions…",
+  "tools.repairModesDone": "Changed {files} and {folders} to {fileMode} and {folderMode}.",
+  "tools.repairModesNothing": "Nothing to change, no file at 0600 and no folder at 0700.",
+  "tools.repairModesFailed": "{failed} could not be checked or changed, see the container log.",
+  "tools.fileOne": "1 file",
+  "tools.fileMany": "{n} files",
+  "tools.folderOne": "1 folder",
+  "tools.folderMany": "{n} folders",
+  "tools.entryOne": "1 entry",
+  "tools.entryMany": "{n} entries",
   "tools.danger": "Danger zone",
   "tools.signOut": "Sign out from Microsoft",
   "tools.signOutConfirm":
@@ -398,6 +418,7 @@ export const en = {
   "errors.unauthorized": "Your session expired. Sign in again.",
   "errors.invalid-password": "Wrong password.",
   "errors.not-authenticated": "This account is not signed in to Microsoft yet.",
+  "errors.repair-running": "A permission repair of this account is already running.",
   "errors.already-configured": "A password is already configured.",
   "errors.already-exists": "An account with this name already exists.",
   "errors.required": "This field is required.",
@@ -2047,6 +2068,35 @@ function openToolsPanel(card, id) {
   panel.append(
     el("div", { className: "form-actions" }, resync),
     el("p", { text: t("tools.resyncHint"), className: "hint" })
+  );
+
+  // Changes files on disk, so it asks first.
+  const repairModes = actionButton(t("tools.repairModes"), "", async () => {
+    if (!window.confirm(t("tools.repairModesConfirm"))) return;
+    toast("info", t("tools.repairModesRunning"));
+    const res = await api(`/api/instances/${id}/repair-permissions`, { method: "POST" });
+    const parts = [];
+    if (res.files + res.folders > 0) {
+      parts.push(
+        t("tools.repairModesDone", {
+          files: res.files === 1 ? t("tools.fileOne") : t("tools.fileMany", { n: res.files }),
+          folders: res.folders === 1 ? t("tools.folderOne") : t("tools.folderMany", { n: res.folders }),
+          fileMode: res.fileMode,
+          folderMode: res.folderMode,
+        })
+      );
+    } else if (res.failed === 0) {
+      parts.push(t("tools.repairModesNothing"));
+    }
+    if (res.failed > 0) {
+      const failed = res.failed === 1 ? t("tools.entryOne") : t("tools.entryMany", { n: res.failed });
+      parts.push(t("tools.repairModesFailed", { failed }));
+    }
+    toast(res.failed > 0 ? "err" : "ok", parts.join(" "));
+  });
+  panel.append(
+    el("div", { className: "form-actions" }, repairModes),
+    el("p", { text: t("tools.repairModesHint"), className: "hint" })
   );
 
   // Danger zone.

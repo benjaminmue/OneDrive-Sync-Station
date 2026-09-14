@@ -3,7 +3,7 @@
 
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
+import { chmodSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { bootstrap } from "./helpers.mjs";
 
@@ -32,6 +32,16 @@ test("creating an instance lays out both directories and a client config", () =>
   assert.match(config, /threads = "8"/);
   // Paths are passed on the command line instead, so they must not be in here.
   assert.ok(!config.includes("sync_dir"));
+});
+
+test("the client config leaves file modes to UMASK", () => {
+  // Without it every download lands as 0600 and every folder as 0700, which an
+  // SMB share cannot read even with PUID, PGID and UMASK set correctly.
+  const config = readFileSync(
+    join(env.root, "config", "instances", "work-business", "config"),
+    "utf8"
+  );
+  assert.match(config, /^disable_permission_set = "true"$/m);
 });
 
 test("a SharePoint instance requires a drive id and writes it to the config", () => {
@@ -132,4 +142,42 @@ test("deleting an instance keeps its files unless asked otherwise", () => {
   env.instances.createInstance({ name: "Temp Two", type: "personal" });
   env.instances.deleteInstance("temp-two", { deleteData: true });
   assert.ok(!existsSync(join(env.root, "data", "temp-two")));
+});
+
+test("every client config is rendered again from the registry", () => {
+  // An account created by an older version keeps the file that version wrote
+  // until something re-renders it, so a key added since would never arrive.
+  const file = join(env.root, "config", "instances", "work-business", "config");
+  const registered = env.instances.getInstance("work-business").options.monitorInterval;
+  writeFileSync(file, 'monitor_interval = "1234"\n');
+
+  const failed = env.instances.renderAllClientConfigs();
+
+  assert.equal(failed.size, 0);
+  const config = readFileSync(file, "utf8");
+  assert.match(config, /^disable_permission_set = "true"$/m);
+  assert.match(config, new RegExp(`^monitor_interval = "${registered}"$`, "m"));
+  assert.ok(!config.includes("1234"));
+});
+
+test("one unwritable account does not stop the others from being rendered", {
+  skip: process.platform === "win32" || process.getuid?.() === 0 ? "needs POSIX modes as non-root" : false,
+}, () => {
+  const blocked = join(env.root, "config", "instances", "work-business");
+  const other = join(env.root, "config", "instances", "marketing-library", "config");
+  writeFileSync(other, "stale\n");
+  chmodSync(blocked, 0o500);
+  try {
+    const failed = env.instances.renderAllClientConfigs();
+    assert.deepEqual([...failed], ["work-business"]);
+    assert.match(readFileSync(other, "utf8"), /disable_permission_set/);
+  } finally {
+    chmodSync(blocked, 0o700);
+  }
+});
+
+test("options missing from an older registry fall back to their defaults", () => {
+  const config = env.instances.writeClientConfig({ id: "legacy-record", options: {} });
+  assert.match(config, /threads = "8"/);
+  assert.ok(!config.includes("undefined"));
 });

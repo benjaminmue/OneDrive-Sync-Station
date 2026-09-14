@@ -8,6 +8,32 @@ Every published image carries a version. The header of the web UI shows it
 together with the commit the image was built from, so it is always possible to
 tell which build is running.
 
+## [0.6.1] - 2026-09-14
+
+### Fixed
+
+- Synced files could not be opened over an SMB share. The sync client sets
+  every download to 0600 and every folder to 0700 on its own, overriding the
+  container's `UMASK`, so the Unraid defaults `PUID=99`, `PGID=100` and
+  `UMASK=0002` promised 0664/0775 and delivered files only their owner could
+  read. The generated client config now sets `disable_permission_set`, and
+  `UMASK` alone decides the modes of new files. Changing this key does not make
+  the client demand a resync. Reported in #1.
+- A setting added to the generated client config never reached an existing
+  account, because the file was only written when an account was created or
+  edited. Every client config is now rendered again when the station starts.
+  An account whose config cannot be written is logged and not started, instead
+  of keeping the whole station down.
+
+### Added
+
+- **Repair file permissions** in an account's Tools tab. It changes files at
+  exactly 0600 and folders at exactly 0700 in that account's folder to the
+  modes `UMASK` gives, for everything downloaded before this version. It is a
+  button and not an automatic step on update, because those modes can also have
+  been chosen on purpose. It asks before it changes anything, never follows a
+  symbolic link and leaves files with several hard links alone.
+
 ## [0.6.0] - 2026-08-27
 
 ### Fixed
