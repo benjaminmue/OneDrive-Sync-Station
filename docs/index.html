@@ -66,7 +66,7 @@
         <div class="install__ca">
           <h3><span class="step-tag">Unraid</span> Community Applications</h3>
           <ol class="steps">
-            <li>Open <b>Apps</b> and search for <code>OneDrive Sync Station</code>. Pick the entry without &ldquo;(Beta)&rdquo; in its name and install it.</li>
+            <li>Open <b>Apps</b> and search for <code>OneDrive Sync Station</code>. Pick <code>onedrive-sync-station</code> (not the <code>-beta</code> entry) and install it.</li>
             <li>Check the paths. <b>Data</b> should be a dedicated share, it holds nothing but synced files. Back up <b>Config</b>: it holds the sign-ins. Then <b>Apply</b>.</li>
             <li>Open the WebUI, set a password and add your first account.</li>
           </ol>
@@ -113,7 +113,7 @@
 
       <div class="channel">
         <h3><span class="step-tag">Testers</span> Beta channel</h3>
-        <p class="small">Every change is published as <code>:beta</code> first and only released to <code>:latest</code> after it has been tested. To try what comes next, install the Community Applications entry <b>OneDrive Sync Station (Beta)</b> or pull <code>ghcr.io/benjaminmue/onedrive-sync-station:beta</code>. Beta and stable must never share a <b>Config</b> or <b>Data</b> path: give the beta container its own appdata folder, its own data share and its own host port.</p>
+        <p class="small">Every change is published as <code>:beta</code> first and only released to <code>:latest</code> after it has been tested. To try what comes next, install the Community Applications entry <code>onedrive-sync-station-beta</code> (web UI on port 8495) or pull <code>ghcr.io/benjaminmue/onedrive-sync-station:beta</code>. Beta and stable must never share a <b>Config</b> or <b>Data</b> path: give the beta container its own appdata folder, its own data share and its own host port.</p>
       </div>
     </div>
   </section>
