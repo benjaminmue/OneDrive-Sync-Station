@@ -8,6 +8,20 @@ Every published image carries a version. The header of the web UI shows it
 together with the commit the image was built from, so it is always possible to
 tell which build is running.
 
+## [0.7.1] - 2026-10-05
+
+### Fixed
+
+- After signing in, the header showed "reconnecting" for about 25 seconds. The
+  live event stream sent its headers only with the first heartbeat, and the
+  browser counts the stream as open once they arrive. It now opens right away.
+- The empty state promised that syncing starts on its own, which has not been
+  true since 0.6.0: a new account reads its folder list first and waits for a
+  selection or an explicit "Sync everything".
+- The Unraid template in this repository pointed at `:latest`, which does not
+  exist yet. It now matches the Community Applications template: `:beta`,
+  flagged as beta, with the same description.
+
 ## [0.7.0] - unreleased
 
 ### Changed
