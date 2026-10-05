@@ -15,8 +15,9 @@ export const FAKE_CLIENT = fileURLToPath(new URL("./fixtures/fake-onedrive.mjs",
 
 /**
  * Point the station at a fresh temporary environment and load its modules.
- * @param {{clientBin?: string}} [opts] Override the client binary, for example
- *   with a path that cannot be executed, to exercise spawn failures.
+ * @param {{clientBin?: string, graphBase?: string}} [opts] Override the client binary, for example
+ *   with a path that cannot be executed, to exercise spawn failures, or point
+ *   Graph at a local fake server.
  * @returns {Promise<{root: string, cleanup: () => void, config: object, instances: object, supervisor: object, onedrive: object, authflow: object, synclist: object, validate: object, app: object}>} Loaded modules and the temp root.
  */
 export async function bootstrap(opts = {}) {
@@ -24,6 +25,11 @@ export async function bootstrap(opts = {}) {
   process.env.CONFIG_DIR = join(root, "config");
   process.env.DATA_DIR = join(root, "data");
   process.env.ONEDRIVE_BIN = opts.clientBin ?? FAKE_CLIENT;
+  // Never Microsoft. Graph is switched off unless a test points it at a fake
+  // server, so discovery goes straight to the stub client without even trying
+  // a socket, which would cost retries and, on Windows, seconds per attempt.
+  process.env.GRAPH_LOGIN_BASE = opts.graphBase ?? "off";
+  process.env.GRAPH_API_BASE = opts.graphBase ? `${opts.graphBase}/v1.0` : "off";
 
   const config = await import("../src/config.js");
   config.ensureDirs();

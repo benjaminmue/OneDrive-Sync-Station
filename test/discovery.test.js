@@ -56,7 +56,7 @@ test("an unauthenticated account cannot be discovered", async () => {
   assert.equal(body(res).error, "not-authenticated");
 });
 
-test("discovery runs the client in dry-run mode and reports it in the log", async () => {
+test("without Graph, discovery runs the client in dry-run mode and reports it in the log", async () => {
   const res = await call("POST", "/api/instances/discover-me/discover");
   assert.equal(res.statusCode, 200);
   assert.equal(body(res).started, true);
@@ -64,7 +64,7 @@ test("discovery runs the client in dry-run mode and reports it in the log", asyn
   const announced = await waitFor(() =>
     env.supervisor
       .logs("discover-me")
-      .some((entry) => entry.line.includes("without downloading anything"))
+      .some((entry) => entry.line.includes("nothing is downloaded"))
   );
   assert.ok(announced, "the run says what it is doing, in the account log");
 

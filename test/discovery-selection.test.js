@@ -48,15 +48,19 @@ test("the client sees no selection while the run is in progress", async () => {
   env.synclist.write(instance, "/Apfelbaum/\n");
 
   let sawSelectionDuringRun = null;
-  discovery.start(instance);
-  // Sampled while the stub client is still running: the file must be gone, or
-  // the run would list only the folders already selected.
-  await waitFor(() => {
-    if (sawSelectionDuringRun === null && discovery.isRunning(instance.id)) {
+  // Sampled the moment the dry run prints its first folder, so while the stub
+  // client is certainly running: the file must be gone, or the run would list
+  // only the folders already selected. Polling would miss a run this short.
+  const sample = ({ id, line }) => {
+    if (id !== instance.id || sawSelectionDuringRun !== null) return;
+    if (line.includes("Attempting to create local directory")) {
       sawSelectionDuringRun = existsSync(join(confDir, "sync_list"));
     }
-    return !discovery.isRunning(instance.id);
-  }, 15_000);
+  };
+  env.supervisor.events.on("log", sample);
+  discovery.start(instance);
+  await waitFor(() => !discovery.isRunning(instance.id), 15_000);
+  env.supervisor.events.off("log", sample);
 
   assert.equal(sawSelectionDuringRun, false);
   assert.equal(env.synclist.read(instance).text, "/Apfelbaum/\n");

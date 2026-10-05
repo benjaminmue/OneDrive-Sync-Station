@@ -9,6 +9,7 @@
 //   FAKE_AUTH_FAIL=1     the sign-in exits non-zero instead of succeeding
 //   FAKE_NO_AUTH_URL=1   no authorisation URL file is ever written
 //   FAKE_MONITOR_EXIT=n  monitor mode exits with code n after a moment
+//   FAKE_DRY_RUN_HOLD_MS=n  a dry run stays alive n ms after printing its folders
 
 import { writeFileSync, existsSync, readFileSync, mkdirSync } from "node:fs";
 import { basename, join } from "node:path";
@@ -200,6 +201,7 @@ if (has("--sync") && has("--dry-run")) {
     process.stdout.write(`DRY-RUN: Not creating local directory: ${dir}\n`);
   }
   process.stdout.write("DRY-RUN: would download 3 files\n");
+  await new Promise((resolve) => setTimeout(resolve, Number(process.env.FAKE_DRY_RUN_HOLD_MS || 0)));
   process.exit(0);
 }
 

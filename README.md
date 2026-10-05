@@ -39,9 +39,10 @@
   for the client's `sync_list` rules and a dry-run preview. Saving triggers the
   resync the client requires after every change.
 - **Nothing downloads behind your back.** A new account does not start syncing
-  on its own. It reads its folder list first, in a run that downloads nothing,
-  so the choice comes before the traffic. Folders that exist only on this server
-  are marked as such, because those are the ones with no copy anywhere else.
+  on its own. It reads its folder list from Microsoft Graph first, which is
+  quick and downloads nothing, so the choice comes before the traffic. Folders
+  that exist only on this server are marked as such, because those are the ones
+  with no copy anywhere else.
 - **Config and data kept apart.** `/config` holds settings and sign-ins,
   `/data` holds nothing but synced files, one subfolder per account.
 - **Password protected.** The UI is gated behind a password of its own,
@@ -56,18 +57,32 @@ docker run -d \
   -v /mnt/user/appdata/onedrive-sync-station:/config \
   -v /mnt/user/OneDrive:/data \
   -e PUID=99 -e PGID=100 -e TZ=Europe/Zurich \
-  ghcr.io/benjaminmue/onedrive-sync-station:beta
+  ghcr.io/benjaminmue/onedrive-sync-station:latest
 ```
 
 Then open `http://<host>:8080`, set a password, and add your first account.
 
-The tag is `:beta` on purpose. `:latest` does not exist until the first version
-tag, and pulling it fails.
+## Channels
+
+There are two channels, each with its own image tag and its own Community
+Applications entry:
+
+| Channel | Image tag | Built from | CA entry |
+|---|---|---|---|
+| Release | `:latest` (also `:X.Y.Z`, `:X.Y`) | version tags `vX.Y.Z` on `main` | `onedrive-sync-station` |
+| Beta | `:beta` | every push to the `beta` branch | `onedrive-sync-station-beta` |
+
+Every change lands on `beta` first, is tested there, and is released afterwards.
+Use `:latest` unless you want to test what comes next.
+
+Beta and release must not share the same `/config` or `/data` path. If you run
+both, give each its own appdata folder and its own data share: two stations
+working on the same sign-ins and the same files will get in each other's way.
 
 ## Install on Unraid
 
-The container is in **Community Applications**, published from the beta channel,
-so it carries a BETA banner. Search for *OneDrive Sync Station* under Apps.
+The container is in **Community Applications**. Search for *OneDrive Sync
+Station* under Apps and pick `onedrive-sync-station` for the stable release (`onedrive-sync-station-beta` is the beta channel).
 
 The CA template is maintained in the repository
 [`benjaminmue/unraid`](https://github.com/benjaminmue/unraid/blob/main/templates/onedrive-sync-station.xml).
@@ -94,7 +109,7 @@ docker compose up -d --build
 3. Copy the **full URL of that blank page** from the address bar and paste it
    back into the UI. That URL carries the authorisation code.
 4. Decide what to sync. Syncing does **not** start by itself: the account offers
-   to look at its folders first (a dry run that downloads nothing), to go
+   to look at its folders first (read from Microsoft, nothing is downloaded), to go
    straight to the selection, or to take everything. Pressing Start begins the
    sync.
 
@@ -159,10 +174,17 @@ the tree and are the expensive kind, because the client has to walk every folder
 online and locally to find them.
 
 Above the editor is a list of the account's folders to tick, so the paths do not
-have to be typed by hand. It is merged from every source that knows anything:
-the client's own cache, the last discovery run, and what is on disk. None of
-them sees the whole account by itself, which is why **Reload list** can surface
-folders that were not there a minute ago.
+have to be typed by hand. It is read from Microsoft Graph with the account's own
+sign-in, and a running account keeps syncing meanwhile. The station redeems the
+client's refresh token for a short-lived access token in memory and never writes
+the token file. If Graph cannot be reached, it falls back to a dry run of the
+sync client, which lists the same folders but takes minutes on a large account.
+**Reload list** reads it again after folders were created in OneDrive.
+
+A folder is marked **only here** when it exists on this server but not in the
+list read from Graph. After a dry-run fallback the marker is not shown at all,
+because a dry run leaves out the folders that are already synced, and it is
+never shown inside a shared folder, whose contents are not part of the list.
 
 Saving restarts the account with `--resync`, which the client requires after
 every change to the selection. Note what that means for folders you remove:
@@ -230,9 +252,15 @@ npm run release:patch   # fixes
 npm run release:minor   # new capabilities
 ```
 
-Then commit, merge into `beta` to publish `:beta`, or tag `vX.Y.Z` to publish
-`:latest`. The publish workflow runs the tests first and refuses to build if
-they fail.
+Then:
+
+1. Commit and merge into `beta`. That publishes `:beta`.
+2. Test the beta image on a real server.
+3. Open a pull request from `beta` to `main` and merge it.
+4. Tag the merge commit on `main` with `vX.Y.Z`. That publishes `:latest`,
+   `:X.Y.Z` and `:X.Y`.
+
+The publish workflow runs the tests first and refuses to build if they fail.
 
 ## Development
 
@@ -257,7 +285,8 @@ Microsoft account or a container.
 | `src/authflow.js` | File based Microsoft sign-in handshake |
 | `src/onedrive.js` | Client command wrapper and output parsing |
 | `src/synclist.js` | Folder selection file |
-| `src/discovery.js` | Dry runs that list an account's folders without downloading |
+| `src/graph.js` | Folder tree read from Microsoft Graph, token redeemed in memory |
+| `src/discovery.js` | Folder listing runs: Graph first, a client dry run as fallback |
 | `src/foldertree.js` | Folder list, merged from every source that knows one |
 | `src/validate.js` | All input validation |
 
@@ -265,15 +294,13 @@ Microsoft account or a container.
 
 Honest list of what is missing or rough, rather than finding out the hard way:
 
-- **The folder list can be incomplete while an account is running.** The client
-  holds a lock on its database, so the list falls back to weaker sources and may
-  show fewer folders than exist. Stopping the account and reloading the list
-  gives the full picture.
+- **National clouds are not supported.** The station has no setting for them;
+  the folder list is read from the global Microsoft endpoints.
+- **Folders inside shared folders are not listed.** A folder shared into the
+  account appears in the list and can be selected, its subfolders live on the
+  owner's drive and have to be added as rules by hand.
 - **No log rotation.** The client's output is held in memory per account and
   capped by line count, but nothing is written to disk in a rotated form yet.
-- **Published from the beta channel.** The Community Applications entry points
-  at `:beta` and is flagged as beta there. `:latest` does not exist until the
-  first version tag, so pulling it fails.
 - **One pair of eyes.** No independent review has happened yet.
 
 ## Credits
