@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OneDrive Sync Station - several OneDrive accounts on your Unraid server</title>
+<meta name="description" content="A Docker container with a web UI that syncs several OneDrive Personal, OneDrive Business and SharePoint accounts on your Unraid server, built on the OneDrive Client for Linux by abraunegg. Beta.">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#12161b">
+<link rel="icon" href="assets/logo.svg" type="image/svg+xml">
+<link rel="canonical" href="https://onedrive-sync.bebamu.ch/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="OneDrive Sync Station">
+<meta property="og:title" content="OneDrive Sync Station">
+<meta property="og:description" content="Sync several OneDrive Personal, Business and SharePoint accounts from one container on your Unraid server, managed through a web UI.">
+<meta property="og:url" content="https://onedrive-sync.bebamu.ch/">
+<meta property="og:image" content="https://onedrive-sync.bebamu.ch/assets/og.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="wrap topbar__inner">
+    <a class="brand" href="#top" aria-label="OneDrive Sync Station, back to top">
+      <img src="assets/logo.svg" alt="" width="28" height="28">
+      <span>OneDrive Sync Station</span>
+    </a>
+    <nav class="topnav" aria-label="Sections">
+      <a href="#install">Install</a>
+      <a href="#features">Features</a>
+      <a href="https://github.com/benjaminmue/OneDrive-Sync-Station">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main id="top">
+
+  <section class="hero wrap">
+    <div class="hero__copy">
+      <p class="eyebrow">Unraid · Docker · web UI · <span class="badge">Beta</span></p>
+      <h1>Several OneDrive accounts, synced on your Unraid server.</h1>
+      <p class="lede">One container with a web UI that syncs OneDrive Personal, OneDrive Business and SharePoint document libraries side by side, each with its own folder and its own sign-in. Built on the OneDrive Client for Linux by abraunegg.</p>
+      <p class="actions">
+        <a class="btn btn--primary" href="#install">Install on Unraid</a>
+        <a class="btn" href="https://github.com/benjaminmue/OneDrive-Sync-Station">Source on GitHub</a>
+      </p>
+      <p class="meta">Listed in Community Applications as beta · amd64 image on GHCR · MIT</p>
+      <p class="note">Early software: all three account types have been synced end to end on real hardware, with one pair of eyes on the code. Do not point it at data you have no other copy of. Independent, unofficial project, not affiliated with Microsoft.</p>
+    </div>
+    <figure class="shot hero__shot">
+      <img src="assets/web-ui-accounts.webp" width="1536" height="1328"
+           alt="The OneDrive Sync Station web UI: an Accounts card listing a Personal and a Business account, each with its own folder under /data, Sign in, Log, Folders and Tools buttons and a Not signed in status">
+      <figcaption>The real web UI (0.6.1) running locally with two accounts added. Both show Not signed in because no Microsoft account was connected for this screenshot.</figcaption>
+    </figure>
+  </section>
+
+  <section id="install" class="band">
+    <div class="wrap">
+      <h2>Install</h2>
+      <p class="section-lede">On Unraid, use Community Applications. Anywhere else, any Docker host on amd64 works. The image is published from the beta channel, so the tag is <code>:beta</code>; there is no <code>:latest</code> to pull yet.</p>
+
+      <div class="install">
+        <div class="install__ca">
+          <h3><span class="step-tag">Unraid</span> Community Applications</h3>
+          <ol class="steps">
+            <li>Open <b>Apps</b> and search for <code>OneDrive Sync Station</code>. The card carries a BETA banner. Install it.</li>
+            <li>Check the paths. <b>Data</b> should be a dedicated share, it holds nothing but synced files. Back up <b>Config</b>: it holds the sign-ins. Then <b>Apply</b>.</li>
+            <li>Open the WebUI, set a password and add your first account.</li>
+          </ol>
+          <p class="small">Without CA: Docker tab, <b>Add Container</b>, and paste the template URL.</p>
+          <div class="code code--wrap">
+            <pre><code>https://raw.githubusercontent.com/benjaminmue/unraid/main/templates/onedrive-sync-station.xml</code></pre>
+          </div>
+          <p class="small">The template maps the web UI to host port <code>8485</code> by default. The container listens on <code>8080</code>.</p>
+        </div>
+
+        <div class="install__cli">
+          <h3><span class="step-tag">CLI</span> docker run</h3>
+          <div class="code">
+            <pre><code>docker run -d --name onedrive-sync-station \
+  -p 8485:8080 \
+  -e PUID=99 -e PGID=100 -e TZ=Europe/Zurich \
+  -v /mnt/user/appdata/onedrive-sync-station:/config \
+  -v /mnt/user/OneDrive:/data \
+  --restart unless-stopped \
+  ghcr.io/benjaminmue/onedrive-sync-station:beta</code></pre>
+          </div>
+
+          <h3><span class="step-tag">CLI</span> Docker Compose</h3>
+          <div class="code">
+            <pre><code>services:
+  onedrive-sync-station:
+    image: ghcr.io/benjaminmue/onedrive-sync-station:beta
+    container_name: onedrive-sync-station
+    ports:
+      - "8485:8080"
+    environment:
+      - PUID=99
+      - PGID=100
+      - UMASK=0002
+      - TZ=Europe/Zurich
+    volumes:
+      - /mnt/user/appdata/onedrive-sync-station:/config
+      - /mnt/user/OneDrive:/data
+    restart: unless-stopped</code></pre>
+          </div>
+          <p class="small">Paths and defaults follow the Unraid template. Then open <code>http://&lt;server&gt;:8485</code>. The <a href="https://github.com/benjaminmue/OneDrive-Sync-Station#install-on-unraid">README</a> also shows how to build the image from source with Compose.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="features" class="wrap">
+    <h2>What it does</h2>
+    <p class="section-lede">The OneDrive Client for Linux syncs one account per configuration and is driven from a terminal. This project runs one client process per account inside a single container and puts a web UI on top, so several accounts can be added, signed in, narrowed down and watched from the browser.</p>
+
+    <dl class="features">
+      <div><dt>Several accounts, one container</dt><dd>Each account runs its own sync client with its own configuration and its own folder. No Docker socket, no container per account.</dd></div>
+      <div><dt>Personal, Business, SharePoint</dt><dd>All three are added the same way. A SharePoint document library is an account of its own.</dd></div>
+      <div><dt>Sign-in from the browser</dt><dd>No terminal, no <code>docker exec</code>. You sign in on Microsoft's own pages; only the resulting authorisation code passes through the UI.</dd></div>
+      <div><dt>SharePoint lookup</dt><dd>Finds the drive IDs of a site's document libraries with the credentials of a business account that is already signed in.</dd></div>
+      <div><dt>Selective sync</dt><dd>A folder list to tick per account, backed by an editor for the client's <code>sync_list</code> rules and a dry-run preview.</dd></div>
+      <div><dt>Nothing downloads unasked</dt><dd>A new account does not start on its own. It can read its folder list first in a run that downloads nothing, so the choice comes before the traffic.</dd></div>
+      <div><dt>Config and data apart</dt><dd><code>/config</code> holds settings and sign-ins, <code>/data</code> holds nothing but synced files, one subfolder per account.</dd></div>
+      <div><dt>Unraid file ownership</dt><dd>Runs as <code>99:100</code> with <code>UMASK 0002</code>, so synced files are <code>0664</code> and folders <code>0775</code> and open over an SMB share.</dd></div>
+    </dl>
+  </section>
+
+  <section class="band">
+    <div class="wrap firstrun">
+      <div class="firstrun__copy">
+        <h2>Adding an account</h2>
+        <ol class="steps">
+          <li>Set a password for the web UI. It is meant for the LAN and gated by its own password.</li>
+          <li><b>Add account</b>, give it a name and pick the type.</li>
+          <li>Sign in. Business and SharePoint can use a device code: enter a short code on one Microsoft page, nothing is copied back. Personal accounts open a Microsoft link and paste the address of the resulting blank page back into the UI.</li>
+          <li>Decide what to sync: look at the folders first, go straight to the selection, or take everything. Pressing <b>Start</b> begins the sync.</li>
+        </ol>
+        <p class="small">No client secret and normally no app registration of your own. If a tenant requires administrator approval, the account offers an admin consent URL for them. The device code is not offered for personal accounts because Microsoft blocks that flow for them, as <a href="https://github.com/abraunegg/onedrive/blob/master/docs/usage.md">documented upstream</a>.</p>
+      </div>
+      <figure class="shot">
+        <img src="assets/web-ui-signin.webp" width="1404" height="1008" loading="lazy"
+             alt="The sign-in panel of a Business account, offering to enter a code at Microsoft (recommended) or to copy an address back from the browser, with a Start sign-in button">
+        <figcaption>Sign-in choice for a Business account. For a Personal account the UI marks the code method as not available.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section class="wrap">
+    <h2>Volumes and variables</h2>
+    <div class="tables">
+      <div class="table-wrap">
+        <table>
+          <caption>Volumes</caption>
+          <thead><tr><th scope="col">Container path</th><th scope="col">Purpose</th></tr></thead>
+          <tbody>
+            <tr><td><code>/config</code></td><td>Web UI password hash, account registry, per-account client config and refresh tokens. Back it up.</td></tr>
+            <tr><td><code>/data</code></td><td>Synced files only, one subfolder per account. Map to a dedicated share.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="table-wrap">
+        <table class="vars">
+          <caption>Variables</caption>
+          <thead><tr><th scope="col">Variable</th><th scope="col">Default</th><th scope="col">Purpose</th></tr></thead>
+          <tbody>
+            <tr><td><code>PUID</code> / <code>PGID</code></td><td><code>99</code> / <code>100</code></td><td>Ownership of everything the container writes</td></tr>
+            <tr><td><code>UMASK</code></td><td><code>0002</code></td><td><code>0664</code> files, <code>0775</code> folders</td></tr>
+            <tr><td><code>TZ</code></td><td><code>Europe/Zurich</code></td><td>Timezone for the timestamps in the UI</td></tr>
+            <tr><td><code>ADMIN_PASSWORD</code></td><td>unset</td><td>Recovery only: replaces the web UI password on start, then remove it</td></tr>
+            <tr><td><code>FIX_PERMISSIONS</code></td><td><code>true</code></td><td>Repair ownership drift on start</td></tr>
+            <tr><td><code>WEBUI_PORT</code></td><td><code>8080</code></td><td>Port of the web UI inside the container</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <p class="small">Full reference in the <a href="https://github.com/benjaminmue/OneDrive-Sync-Station#configuration">README</a>.</p>
+  </section>
+
+  <section class="band">
+    <div class="wrap">
+      <h2>Before you start</h2>
+      <ul class="warnings">
+        <li><b>Beta, with one pair of eyes on it.</b> The Community Applications entry points at <code>:beta</code>. No independent review has happened yet. Keep another copy of anything you sync.</li>
+        <li><b>Removing a folder from the selection deletes its local copy.</b> Saving the selection restarts the account with <code>--resync</code>; folders you untick are removed under the data path on the next run and stay in OneDrive. Use <b>Dry run</b> first.</li>
+        <li><b>Do not expose the web UI to the internet.</b> It can sign in to Microsoft accounts and reaches every synced file. Put a reverse proxy with its own authentication in front of it if it has to leave the LAN.</li>
+      </ul>
+    </div>
+  </section>
+
+</main>
+
+<footer class="footer">
+  <div class="wrap">
+    <p>All syncing is done by the <a href="https://github.com/abraunegg/onedrive">OneDrive Client for Linux</a> by <a href="https://github.com/abraunegg">@abraunegg</a>, licensed GPL-3.0. The image contains a compiled copy of that client, built unmodified from source at a pinned release tag (currently v2.5.11); its complete source is available upstream. This project's own code is MIT licensed and talks to the client only through its command line and configuration files.</p>
+    <p>Built with heavy assistance from AI (Anthropic's Claude, via Claude Code), disclosed openly. Used in a personal homelab: review the code before trusting it with your data.</p>
+    <p>Independent, unofficial project. Not affiliated with, endorsed by, or supported by Microsoft. "OneDrive", "SharePoint" and "Microsoft 365" are trademarks of Microsoft Corporation.</p>
+    <p class="footer__links">
+      <a href="https://github.com/benjaminmue/OneDrive-Sync-Station">GitHub</a>
+      <a href="https://github.com/benjaminmue/OneDrive-Sync-Station/blob/main/CHANGELOG.md">Changelog</a>
+      <a href="https://github.com/benjaminmue/OneDrive-Sync-Station/blob/main/NOTICE.md">Notice</a>
+      <a href="https://github.com/benjaminmue/OneDrive-Sync-Station/issues">Issues</a>
+      <a href="https://github.com/abraunegg/onedrive">OneDrive Client for Linux</a>
+    </p>
+  </div>
+</footer>
+
+<script src="site.js" defer></script>
+</body>
+</html>
