@@ -57,18 +57,32 @@ docker run -d \
   -v /mnt/user/appdata/onedrive-sync-station:/config \
   -v /mnt/user/OneDrive:/data \
   -e PUID=99 -e PGID=100 -e TZ=Europe/Zurich \
-  ghcr.io/benjaminmue/onedrive-sync-station:beta
+  ghcr.io/benjaminmue/onedrive-sync-station:latest
 ```
 
 Then open `http://<host>:8080`, set a password, and add your first account.
 
-The tag is `:beta` on purpose. `:latest` does not exist until the first version
-tag, and pulling it fails.
+## Channels
+
+There are two channels, each with its own image tag and its own Community
+Applications entry:
+
+| Channel | Image tag | Built from | CA entry |
+|---|---|---|---|
+| Release | `:latest` (also `:X.Y.Z`, `:X.Y`) | version tags `vX.Y.Z` on `main` | *OneDrive Sync Station* |
+| Beta | `:beta` | every push to the `beta` branch | *OneDrive Sync Station (Beta)* |
+
+Every change lands on `beta` first, is tested there, and is released afterwards.
+Use `:latest` unless you want to test what comes next.
+
+Beta and release must not share the same `/config` or `/data` path. If you run
+both, give each its own appdata folder and its own data share: two stations
+working on the same sign-ins and the same files will get in each other's way.
 
 ## Install on Unraid
 
-The container is in **Community Applications**, published from the beta channel,
-so it carries a BETA banner. Search for *OneDrive Sync Station* under Apps.
+The container is in **Community Applications**. Search for *OneDrive Sync
+Station* under Apps and pick the entry without "(Beta)" for the stable release.
 
 The CA template is maintained in the repository
 [`benjaminmue/unraid`](https://github.com/benjaminmue/unraid/blob/main/templates/onedrive-sync-station.xml).
@@ -238,9 +252,15 @@ npm run release:patch   # fixes
 npm run release:minor   # new capabilities
 ```
 
-Then commit, merge into `beta` to publish `:beta`, or tag `vX.Y.Z` to publish
-`:latest`. The publish workflow runs the tests first and refuses to build if
-they fail.
+Then:
+
+1. Commit and merge into `beta`. That publishes `:beta`.
+2. Test the beta image on a real server.
+3. Open a pull request from `beta` to `main` and merge it.
+4. Tag the merge commit on `main` with `vX.Y.Z`. That publishes `:latest`,
+   `:X.Y.Z` and `:X.Y`.
+
+The publish workflow runs the tests first and refuses to build if they fail.
 
 ## Development
 
@@ -281,9 +301,6 @@ Honest list of what is missing or rough, rather than finding out the hard way:
   owner's drive and have to be added as rules by hand.
 - **No log rotation.** The client's output is held in memory per account and
   capped by line count, but nothing is written to disk in a rotated form yet.
-- **Published from the beta channel.** The Community Applications entry points
-  at `:beta` and is flagged as beta there. `:latest` does not exist until the
-  first version tag, so pulling it fails.
 - **One pair of eyes.** No independent review has happened yet.
 
 ## Credits

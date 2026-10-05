@@ -10,6 +10,17 @@ tell which build is running.
 
 ## [0.7.1] - 2026-10-05
 
+First stable release. From here on there are two channels: version tags publish
+`:latest` (plus `:X.Y.Z` and `:X.Y`), pushes to the `beta` branch publish
+`:beta`. Every change goes to beta first and is released once it has been tested.
+
+### Changed
+
+- The Unraid template in this repository is now the stable one: it points at
+  `:latest` and is no longer flagged as beta. Community Applications lists two
+  entries, "OneDrive Sync Station" for `:latest` and "OneDrive Sync Station
+  (Beta)" for `:beta`.
+
 ### Fixed
 
 - After signing in, the header showed "reconnecting" for about 25 seconds. The
@@ -22,7 +33,7 @@ tell which build is running.
   exist yet. It now matches the Community Applications template: `:beta`,
   flagged as beta, with the same description.
 
-## [0.7.0] - unreleased
+## [0.7.0] - 2026-10-05
 
 ### Changed
 
