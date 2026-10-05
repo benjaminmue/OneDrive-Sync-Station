@@ -585,6 +585,10 @@ export async function createApp() {
     // Proxies drop idle connections; a comment line keeps the stream warm
     // without showing up as an event in the browser.
     const heartbeat = setInterval(() => writeChunk(": ping\n\n"), 25_000);
+    // Node holds the headers back until the first write, and the browser only
+    // reports the stream as open once they arrive. Without this the UI shows
+    // "reconnecting" until the first heartbeat.
+    writeChunk(": connected\n\n");
 
     request.raw.on("close", teardown);
     // A write to an already dead socket emits an error event. Without a handler

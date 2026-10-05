@@ -4,6 +4,7 @@
 
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
+import http from "node:http";
 import { bootstrap, waitFor } from "./helpers.mjs";
 
 let env;
@@ -236,6 +237,31 @@ test("stopping is honoured and does not restart on its own", async () => {
   await new Promise((resolve) => setTimeout(resolve, 600));
   assert.equal(env.supervisor.status("work-business").running, false);
   assert.equal(env.supervisor.status("work-business").wantRunning, false);
+});
+
+test("the event stream opens at once instead of on the first heartbeat", async () => {
+  // inject() waits for the response to end, which an event stream never does,
+  // so this one needs a real socket.
+  await app.listen({ port: 0, host: "127.0.0.1" });
+  const { port } = app.server.address();
+  const started = Date.now();
+  const { res, firstChunk } = await new Promise((resolve, reject) => {
+    const req = http.get({ port, path: "/api/events", headers: { cookie } }, (res) => {
+      res.once("data", (chunk) => {
+        resolve({ res, firstChunk: chunk.toString() });
+        req.destroy();
+      });
+    });
+    req.on("error", reject);
+  });
+  const elapsed = Date.now() - started;
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.headers["content-type"], "text/event-stream");
+  // An SSE comment: the browser opens the stream without seeing an event.
+  assert.match(firstChunk, /^:/);
+  // The heartbeat comes every 25 s; anything near that is the old behaviour.
+  assert.ok(elapsed < 2_000, `first chunk took ${elapsed} ms`);
 });
 
 test("signing out of the web UI closes the session", async () => {
