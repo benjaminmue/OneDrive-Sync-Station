@@ -8,18 +8,27 @@ Every published image carries a version. The header of the web UI shows it
 together with the commit the image was built from, so it is always possible to
 tell which build is running.
 
-## [0.7.1] - 2026-10-05
+## [0.7.2] - 2026-10-05
 
 First stable release. From here on there are two channels: version tags publish
 `:latest` (plus `:X.Y.Z` and `:X.Y`), pushes to the `beta` branch publish
 `:beta`. Every change goes to beta first and is released once it has been tested.
 
+### Security
+
+- Dependency updates within the current major versions: fastify 5.12.5,
+  fast-uri 3.1.8 and 4.2.1, brace-expansion 5.0.12. They close high advisories
+  for denial of service, an authentication bypass through malformed URLs that
+  reach not-found handlers, and host confusion in URI parsing.
+
+## [0.7.1] - 2026-10-05
+
 ### Changed
 
 - The Unraid template in this repository is now the stable one: it points at
   `:latest` and is no longer flagged as beta. Community Applications lists two
-  entries, "OneDrive Sync Station" for `:latest` and "OneDrive Sync Station
-  (Beta)" for `:beta`.
+  entries, `onedrive-sync-station` for `:latest` and
+  `onedrive-sync-station-beta` for `:beta`.
 
 ### Fixed
 

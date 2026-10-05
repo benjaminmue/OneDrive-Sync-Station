@@ -69,8 +69,8 @@ Applications entry:
 
 | Channel | Image tag | Built from | CA entry |
 |---|---|---|---|
-| Release | `:latest` (also `:X.Y.Z`, `:X.Y`) | version tags `vX.Y.Z` on `main` | *OneDrive Sync Station* |
-| Beta | `:beta` | every push to the `beta` branch | *OneDrive Sync Station (Beta)* |
+| Release | `:latest` (also `:X.Y.Z`, `:X.Y`) | version tags `vX.Y.Z` on `main` | `onedrive-sync-station` |
+| Beta | `:beta` | every push to the `beta` branch | `onedrive-sync-station-beta` |
 
 Every change lands on `beta` first, is tested there, and is released afterwards.
 Use `:latest` unless you want to test what comes next.
@@ -82,7 +82,7 @@ working on the same sign-ins and the same files will get in each other's way.
 ## Install on Unraid
 
 The container is in **Community Applications**. Search for *OneDrive Sync
-Station* under Apps and pick the entry without "(Beta)" for the stable release.
+Station* under Apps and pick `onedrive-sync-station` for the stable release (`onedrive-sync-station-beta` is the beta channel).
 
 The CA template is maintained in the repository
 [`benjaminmue/unraid`](https://github.com/benjaminmue/unraid/blob/main/templates/onedrive-sync-station.xml).
