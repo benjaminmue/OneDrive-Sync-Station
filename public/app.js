@@ -76,10 +76,10 @@ export const en = {
   "empty.step2Text":
     "The station shows a Microsoft link. You sign in on Microsoft's own pages and " +
     "paste one URL back, your password never touches this UI.",
-  "empty.step3Title": "Watch it sync.",
+  "empty.step3Title": "Choose what to sync.",
   "empty.step3Text":
-    "Syncing starts on its own. The log streams live, and the Folders editor " +
-    "limits what is synced if you do not want everything.",
+    "Nothing downloads on its own. The station reads the folder list first; " +
+    "tick what you want and press Start, or take everything.",
   "empty.add": "Add your first account",
 
   "type.personal": "Personal",
