@@ -8,6 +8,16 @@ Every published image carries a version. The header of the web UI shows it
 together with the commit the image was built from, so it is always possible to
 tell which build is running.
 
+## [0.7.3] - 2026-10-11
+
+### Fixed
+
+- The station now also recognises exit code 78 as the client's request for a
+  resync. Client v2.5.12 changes that code from 126 to 78; without this, an
+  upgraded client would be restarted without `--resync` after every change to
+  the folder selection and never sync again. The pinned client is still
+  v2.5.11, so nothing changes until it is upgraded (issue #11).
+
 ## [0.7.2] - 2026-10-05
 
 First stable release. From here on there are two channels: version tags publish

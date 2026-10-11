@@ -47,15 +47,20 @@ const MAX_LOCAL_SKIPS = 500;
 const STARTUP_GRACE_MS = 20_000;
 
 /**
- * The client's own exit code for "a resync is required" (EXIT_RESYNC_REQUIRED
- * in its main.d). It reports this and stops whenever its configuration file
+ * The client's own exit codes for "a resync is required" (EXIT_RESYNC_REQUIRED
+ * in its util.d). It reports this and stops whenever its configuration file
  * changed since the last run, which includes the very first run after a
  * sign-in, when there is no previous configuration to compare against.
+ *
+ * Up to v2.5.11 the code is 126. From v2.5.12 it is 78 (EX_CONFIG), which the
+ * client also uses when its item database schema does not match. Both are
+ * accepted, so upgrading the pinned client cannot silently turn the demand
+ * into an endless restart without --resync.
  *
  * This is a request, not a crash: the answer is to start again with --resync
  * rather than to back off and retry the same thing.
  */
-const EXIT_RESYNC_REQUIRED = 126;
+const EXIT_RESYNC_REQUIRED = new Set([126, 78]);
 
 /** How long to wait before the automatic restart that carries the resync. */
 const RESYNC_RECOVERY_DELAY_MS = 1000;
@@ -317,7 +322,7 @@ function handleGone(instance, code, signal, opts) {
   // is what makes an account look permanently broken after any configuration
   // change. Granting it only once keeps a client that asks again from looping,
   // and the counter resets as soon as a start survives the grace period.
-  if (code === EXIT_RESYNC_REQUIRED) {
+  if (EXIT_RESYNC_REQUIRED.has(code)) {
     // The client asks again for what it was just given. Granting it once more
     // immediately would spin, so this backs off like any other failed start,
     // but it keeps asking WITH --resync: restarting without it can only produce
