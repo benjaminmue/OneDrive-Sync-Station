@@ -8,7 +8,7 @@ Every published image carries a version. The header of the web UI shows it
 together with the commit the image was built from, so it is always possible to
 tell which build is running.
 
-## [Unreleased]
+## [0.7.3] - 2026-10-11
 
 ### Fixed
 
