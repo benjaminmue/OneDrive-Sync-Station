@@ -258,9 +258,12 @@ Then:
 2. Test the beta image on a real server.
 3. Open a pull request from `beta` to `main` and merge it.
 4. Tag the merge commit on `main` with `vX.Y.Z`. That publishes `:latest`,
-   `:X.Y.Z` and `:X.Y`.
+   `:X.Y.Z` and `:X.Y`, and then creates the GitHub release with the version's
+   `CHANGELOG.md` section as notes, marked Latest.
 
-The publish workflow runs the tests first and refuses to build if they fail.
+The publish workflow runs the tests first and refuses to build if they fail. A
+tag without a matching `## [X.Y.Z]` section in the changelog fails the release
+step, so write the changelog entry before tagging.
 
 ## Development
 
