@@ -47,7 +47,7 @@ RUN git clone --depth 1 --branch "${ONEDRIVE_VERSION}" \
   && make \
   && make install
 
-FROM node:24-trixie-slim
+FROM node:25-trixie-slim
 ARG ONEDRIVE_VERSION
 
 # Stamped into the image so a running container can say which build it is. The
