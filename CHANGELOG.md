@@ -8,6 +8,26 @@ Every published image carries a version. The header of the web UI shows it
 together with the commit the image was built from, so it is always possible to
 tell which build is running.
 
+## [0.7.4] - 2026-10-17
+
+### Changed
+
+- Dependency updates within the current major versions: fastify 5.12.7,
+  @fastify/cookie 11.1.3, @fastify/static 10.1.6 (which brings
+  content-disposition 3.0.0). No advisories were open; this keeps the image
+  current.
+- Build and publish workflows moved to the current major versions of their
+  actions (checkout and setup-node 7, Docker login and Buildx 4, metadata 6,
+  build-push 7). They run on Node 24 now; no inputs the workflows use were
+  removed.
+- A version tag now also creates the GitHub release, with the version's
+  section of this changelog as its notes, so the repository page always shows
+  the current release as Latest. A tag without a changelog section fails the
+  publish workflow instead of producing an empty release. The image is
+  published before the release is created.
+- Two pushes to `beta` in quick succession no longer race: the newer one
+  cancels the running publish, so `:beta` always carries the latest commit.
+
 ## [0.7.3] - 2026-10-11
 
 ### Fixed
