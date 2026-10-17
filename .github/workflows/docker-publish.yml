@@ -10,6 +10,14 @@ on:
       - beta
   workflow_dispatch:
 
+# One publish per ref at a time. Two pushes to beta in quick succession used to
+# build in parallel, and the older run finished last and overwrote :beta with
+# the older commit (17.10.2026). On beta a newer push cancels the running one;
+# tag runs are never cancelled.
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref == 'refs/heads/beta' }}
+
 env:
   IMAGE: ghcr.io/${{ github.repository }}
 

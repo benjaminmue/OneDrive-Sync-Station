@@ -17,6 +17,8 @@ tell which build is running.
   the current release as Latest. A tag without a changelog section fails the
   publish workflow instead of producing an empty release. The image is
   published before the release is created.
+- Two pushes to `beta` in quick succession no longer race: the newer one
+  cancels the running publish, so `:beta` always carries the latest commit.
 
 ## [0.7.3] - 2026-10-11
 
