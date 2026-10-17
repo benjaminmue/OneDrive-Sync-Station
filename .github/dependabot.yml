@@ -1,0 +1,43 @@
+# Dependency updates. Grouped so Monday brings a couple of PRs, not thirty.
+# Major bumps stay separate: they are the ones that need a real look.
+# Every update targets beta: it ships as :beta, is tested on the Tower and is
+# released with the next version tag, like every other change.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    target-branch: beta
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Zurich
+    open-pull-requests-limit: 10
+    groups:
+      patch-and-minor:
+        update-types: [minor, patch]
+      major:
+        update-types: [major]
+
+  - package-ecosystem: docker
+    directory: /
+    target-branch: beta
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Zurich
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: github-actions
+    directory: /
+    target-branch: beta
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Zurich
+    open-pull-requests-limit: 5
+    groups:
+      actions:
+        patterns: ["*"]

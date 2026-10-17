@@ -10,6 +10,7 @@
 //   FAKE_NO_AUTH_URL=1   no authorisation URL file is ever written
 //   FAKE_MONITOR_EXIT=n  monitor mode exits with code n after a moment
 //   FAKE_DRY_RUN_HOLD_MS=n  a dry run stays alive n ms after printing its folders
+//   FAKE_RESYNC_EXIT=n   exit code for a resync demand (126 default, 78 = v2.5.12)
 
 import { writeFileSync, existsSync, readFileSync, mkdirSync } from "node:fs";
 import { basename, join } from "node:path";
@@ -31,6 +32,10 @@ const confDir = valueOf("--confdir");
 const syncDir = valueOf("--syncdir");
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Exit code for "a resync is required": 126 up to client v2.5.11, 78 from
+// v2.5.12. FAKE_RESYNC_EXIT=78 emulates the newer client.
+const RESYNC_EXIT = Number(process.env.FAKE_RESYNC_EXIT || 126);
 
 if (has("--version")) {
   process.stdout.write("onedrive v2.5.11-fake\n");
@@ -143,7 +148,7 @@ if (has("--display-quota")) {
 }
 
 // The real client checks for an outstanding resync before it runs anything at
-// all, a read-only lookup included, and refuses with exit 126 until one is
+// all, a read-only lookup included, and refuses with RESYNC_EXIT until one is
 // granted. It also rejects --resync in combination with this lookup, so the
 // only way out is a directory it finds nothing to complain about. A marker file
 // lets a test put an account into that state.
@@ -166,7 +171,7 @@ if (
   console.log(
     "An application configuration change has been detected where a --resync is required"
   );
-  process.exit(126);
+  process.exit(RESYNC_EXIT);
 }
 
 if (has("--get-sharepoint-drive-id")) {
@@ -210,8 +215,9 @@ if (has("--sync") && has("--dry-run")) {
 if (has("--monitor")) {
   const exitAfter = Number(process.env.FAKE_MONITOR_EXIT || 0);
 
-  // The real client refuses to run and exits with EXIT_RESYNC_REQUIRED (126)
-  // when its configuration changed since the last run, which includes the very
+  // The real client refuses to run and exits with EXIT_RESYNC_REQUIRED (126 up
+  // to v2.5.11, 78 from v2.5.12, chosen through FAKE_RESYNC_EXIT) when its
+  // configuration changed since the last run, which includes the very
   // first run after a sign-in. A marker file reproduces that: the demand is
   // raised once and satisfied by a start that carries --resync.
   // FAKE_DEMAND_RESYNC=always keeps demanding it even when the start carries
@@ -220,12 +226,12 @@ if (has("--monitor")) {
   const resyncMarker = join(confDir || ".", ".resync-demanded");
   if (process.env.FAKE_DEMAND_RESYNC === "always") {
     console.log("An application configuration change has been detected");
-    process.exit(126);
+    process.exit(RESYNC_EXIT);
   }
   if (process.env.FAKE_DEMAND_RESYNC === "1" && !has("--resync") && !existsSync(resyncMarker)) {
     writeFileSync(resyncMarker, "demanded\n");
     process.stdout.write("An application configuration change has been detected\n");
-    process.exit(126);
+    process.exit(RESYNC_EXIT);
   }
 
   process.stdout.write(`Starting monitor mode for ${syncDir}\n`);
