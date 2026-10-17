@@ -8,6 +8,16 @@ Every published image carries a version. The header of the web UI shows it
 together with the commit the image was built from, so it is always possible to
 tell which build is running.
 
+## [Unreleased]
+
+### Changed
+
+- A version tag now also creates the GitHub release, with the version's
+  section of this changelog as its notes, so the repository page always shows
+  the current release as Latest. A tag without a changelog section fails the
+  publish workflow instead of producing an empty release. The image is
+  published before the release is created.
+
 ## [0.7.3] - 2026-10-11
 
 ### Fixed
