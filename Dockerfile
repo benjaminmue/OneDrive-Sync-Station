@@ -83,6 +83,14 @@ RUN onedrive --version
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 
+# The package managers of the base image are needed for the install above and
+# never at runtime. They carry dependencies of their own that scanners flag
+# (undici, brace-expansion and others inside npm), so they leave the image.
+RUN rm -rf /usr/local/lib/node_modules /opt/yarn-v* \
+       /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack \
+       /usr/local/bin/yarn /usr/local/bin/yarnpkg \
+       /root/.npm
+
 COPY src ./src
 COPY public ./public
 # Installed as /entrypoint.sh on purpose, and this path is not cosmetic: the
