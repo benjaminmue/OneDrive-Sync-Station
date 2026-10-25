@@ -10,7 +10,7 @@
 //   FAKE_NO_AUTH_URL=1   no authorisation URL file is ever written
 //   FAKE_MONITOR_EXIT=n  monitor mode exits with code n after a moment
 //   FAKE_DRY_RUN_HOLD_MS=n  a dry run stays alive n ms after printing its folders
-//   FAKE_RESYNC_EXIT=n   exit code for a resync demand (126 default, 78 = v2.5.12)
+//   FAKE_RESYNC_EXIT=n   exit code for a resync demand (78 default, 126 = v2.5.11)
 
 import { writeFileSync, existsSync, readFileSync, mkdirSync } from "node:fs";
 import { basename, join } from "node:path";
@@ -33,12 +33,13 @@ const syncDir = valueOf("--syncdir");
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-// Exit code for "a resync is required": 126 up to client v2.5.11, 78 from
-// v2.5.12. FAKE_RESYNC_EXIT=78 emulates the newer client.
-const RESYNC_EXIT = Number(process.env.FAKE_RESYNC_EXIT || 126);
+// Exit code for "a resync is required": 78 from client v2.5.12, which is the
+// version the image ships, 126 up to v2.5.11. FAKE_RESYNC_EXIT=126 emulates the
+// older client, as after a rollback.
+const RESYNC_EXIT = Number(process.env.FAKE_RESYNC_EXIT || 78);
 
 if (has("--version")) {
-  process.stdout.write("onedrive v2.5.11-fake\n");
+  process.stdout.write("onedrive v2.5.12-fake\n");
   process.exit(0);
 }
 
@@ -137,8 +138,15 @@ if (has("--display-config")) {
   process.exit(0);
 }
 
+// Worded as v2.5.12 reports a clean scope. The command always exits 0, whatever
+// the overall status; the station shows the text as it is.
 if (has("--display-sync-status")) {
-  process.stdout.write("No pending remote changes\n");
+  process.stdout.write(
+    "Synchronization status for the configured sync scope:\n\n" +
+      "Microsoft OneDrive -> Local filesystem\n  No pending remote changes detected.\n\n" +
+      "Local filesystem -> Microsoft OneDrive\n  No pending local changes detected.\n\n" +
+      "Overall status: IN SYNC\n"
+  );
   process.exit(0);
 }
 
@@ -215,8 +223,8 @@ if (has("--sync") && has("--dry-run")) {
 if (has("--monitor")) {
   const exitAfter = Number(process.env.FAKE_MONITOR_EXIT || 0);
 
-  // The real client refuses to run and exits with EXIT_RESYNC_REQUIRED (126 up
-  // to v2.5.11, 78 from v2.5.12, chosen through FAKE_RESYNC_EXIT) when its
+  // The real client refuses to run and exits with EXIT_RESYNC_REQUIRED (78 from
+  // v2.5.12, 126 up to v2.5.11, chosen through FAKE_RESYNC_EXIT) when its
   // configuration changed since the last run, which includes the very
   // first run after a sign-in. A marker file reproduces that: the demand is
   // raised once and satisfied by a start that carries --resync.

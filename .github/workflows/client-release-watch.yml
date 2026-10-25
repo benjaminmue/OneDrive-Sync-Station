@@ -1,0 +1,57 @@
+# Reports a new release of the OneDrive client as an issue.
+#
+# The client is built from source at a pinned tag and commit (Dockerfile), and
+# that pin is a build argument, not an image or a package: Dependabot never
+# sees it. Without this check a new client release only becomes known when
+# someone happens to look upstream.
+
+name: Client release watch
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "41 6 * * 1"
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  watch:
+    name: Compare pin with upstream
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Open an issue when upstream is ahead
+        run: |
+          set -euo pipefail
+          latest="$(gh api repos/abraunegg/onedrive/releases/latest --jq .tag_name)"
+          # Upgrades land on beta first, so the pin there is the one that counts.
+          pinned="$(gh api "repos/${GITHUB_REPOSITORY}/contents/Dockerfile?ref=beta" --jq .content \
+            | base64 -d | sed -n 's/^ARG ONEDRIVE_VERSION=//p')"
+          if [ -z "$latest" ] || [ -z "$pinned" ]; then
+            echo "Could not read the versions (latest '${latest}', pinned '${pinned}')." >&2
+            exit 1
+          fi
+          echo "Pinned ${pinned}, upstream ${latest}"
+
+          newest="$(printf '%s\n%s\n' "${pinned#v}" "${latest#v}" | sort -V | tail -n 1)"
+          if [ "$newest" = "${pinned#v}" ]; then
+            echo "Pin is current."
+            exit 0
+          fi
+
+          title="OneDrive client ${latest} released"
+          if gh issue list --repo "$GITHUB_REPOSITORY" --state all --search "\"${title}\" in:title" \
+               --json title --jq '.[].title' | grep -Fxq "$title"; then
+            echo "Issue already exists."
+            exit 0
+          fi
+
+          gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body "$(cat <<EOF
+          Upstream released [${latest}](https://github.com/abraunegg/onedrive/releases/tag/${latest}); the image is pinned to ${pinned}.
+
+          Before raising the pin (\`ONEDRIVE_VERSION\` and \`ONEDRIVE_COMMIT\` in the Dockerfile), compare the release against what the station relies on: command line options, configuration keys, the log lines it parses, exit codes and the item database schema.
+          EOF
+          )"

@@ -52,10 +52,11 @@ const STARTUP_GRACE_MS = 20_000;
  * changed since the last run, which includes the very first run after a
  * sign-in, when there is no previous configuration to compare against.
  *
- * Up to v2.5.11 the code is 126. From v2.5.12 it is 78 (EX_CONFIG), which the
- * client also uses when its item database schema does not match. Both are
- * accepted, so upgrading the pinned client cannot silently turn the demand
- * into an endless restart without --resync.
+ * From v2.5.12, the version the image ships, the code is 78 (EX_CONFIG), which
+ * the client also uses when its item database schema does not match. Up to
+ * v2.5.11 it was 126. Both are accepted, so an image built against the older
+ * client still has its demands granted rather than restarting endlessly
+ * without --resync.
  *
  * This is a request, not a crash: the answer is to start again with --resync
  * rather than to back off and retry the same thing.

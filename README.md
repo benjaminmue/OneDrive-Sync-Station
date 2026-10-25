@@ -228,6 +228,27 @@ the variable again. The old password is replaced and all sessions are dropped.
   <account>/                 synced files, nothing else
 ```
 
+### Client version
+
+The image builds the OneDrive client v2.5.12 from source, pinned to its tag
+and commit. A weekly workflow opens an issue when upstream releases a newer
+version. Behaviour of this client version worth knowing:
+
+- **Clock check.** If the server clock is more than 120 seconds off, the client
+  pauses syncing until the clock is right again. The account keeps running and
+  says so in its log. Keep the host on NTP.
+- **First start after the upgrade from 0.7.x.** The client's item database
+  format changed (version 18 to 19). On its first start each account rebuilds
+  the database and compares the local files against OneDrive once, which takes
+  longer than a normal cycle on a large account. No resync is asked for, and
+  files that match OneDrive are not transferred again. Going back to 0.7.x
+  rebuilds it the same way.
+- **Brackets in skip rules are literal.** In `skip_file` and `skip_dir`, the
+  characters `[ ] { } ^ $` now match themselves, so `Photos [2023]` excludes
+  exactly that folder. Earlier versions read them as regular expression syntax.
+- **Status file.** Each account directory now holds a `monitor-status.json`
+  written by the client. The station does not read it yet.
+
 ## Security
 
 - The UI can sign in to Microsoft accounts and reads every synced file. It is

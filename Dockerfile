@@ -8,11 +8,11 @@
 # the client is linked against that distribution's libphobos, libcurl and
 # sqlite, so the runtime has to be the same release for the ABI to match.
 
-ARG ONEDRIVE_VERSION=v2.5.11
+ARG ONEDRIVE_VERSION=v2.5.12
 # The commit the tag pointed at when it was pinned. A git tag can be moved, so
 # the tag alone does not make the build reproducible; the checkout is verified
 # against this commit and the build fails if upstream ever re-points it.
-ARG ONEDRIVE_COMMIT=0b7299adb170d789d27d517963bc65fb04e0bd63
+ARG ONEDRIVE_COMMIT=abbb800775e61508fb6283dfd87cf81d8c2b1f37
 
 FROM debian:trixie AS client-build
 ARG ONEDRIVE_VERSION

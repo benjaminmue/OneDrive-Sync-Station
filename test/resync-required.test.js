@@ -2,7 +2,7 @@
 //
 // Found on the first real run against a Microsoft account: after a sign-in, and
 // after any change to its configuration file, the client refuses to start and
-// exits with EXIT_RESYNC_REQUIRED (126). Treating that as a crash puts a
+// exits with EXIT_RESYNC_REQUIRED (126 at the time, 78 since v2.5.12). Treating that as a crash puts a
 // perfectly healthy account into an ever-growing restart backoff and shows it as
 // failing, which is exactly what happened. The answer is to grant the resync
 // once and start again.
