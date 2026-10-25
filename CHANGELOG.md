@@ -8,6 +8,25 @@ Every published image carries a version. The header of the web UI shows it
 together with the commit the image was built from, so it is always possible to
 tell which build is running.
 
+## [0.7.5] - 2026-10-25
+
+### Security
+
+- Rebuilt on Node.js 24.22.1, which fixes the October 21, 2026 security
+  release, among them the Brotli decoder out-of-bounds write CVE-2026-111497
+  and TLS hostname checks for IP hosts (CVE-2026-105483, CVE-2026-106069,
+  CVE-2026-106072).
+- The client's Brotli library is rebuilt from Debian's fixed package
+  (DSA-6582-1, CVE-2026-111497), and ca-certificates includes DSA-6572-1.
+- fast-uri 4.2.3 and 3.1.9 (CVE-2026-110095, CVE-2026-110180,
+  CVE-2026-110306, CVE-2026-110725). The station passes no untrusted input
+  to it; updated so the lock file is free of advisories.
+- npm, npx, corepack and yarn are removed from the runtime image. They are
+  needed only to install the dependencies during the build and brought along
+  dependencies of their own with open advisories.
+
+The OneDrive client stays at v2.5.11.
+
 ## [0.7.4] - 2026-10-17
 
 ### Changed
