@@ -8,6 +8,28 @@ Every published image carries a version. The header of the web UI shows it
 together with the commit the image was built from, so it is always possible to
 tell which build is running.
 
+## [0.8.0] - 2026-10-25
+
+### Changed
+
+- The OneDrive client is now v2.5.12 (pinned to commit `abbb800`). The
+  station was prepared for it in 0.7.3 and grants its resync demand, which now
+  exits with 78 instead of 126; 126 is still accepted.
+- On the first start after the upgrade each account rebuilds the client's item
+  database (format 18 to 19) and compares its files against OneDrive once. No
+  resync is asked for. Going back to 0.7.x rebuilds it the same way.
+- The client pauses syncing while the server clock is more than 120 seconds
+  off and resumes by itself once it is right again.
+- In `skip_file` and `skip_dir`, the characters `[ ] { } ^ $` now match
+  literally instead of as regular expression syntax.
+- The sync status in the Tools tab shows the client's new report, which covers
+  both directions and ends with an overall status.
+
+### Added
+
+- A weekly workflow opens an issue when a newer client release is out. The
+  client pin is a build argument, which Dependabot does not track.
+
 ## [0.7.5] - 2026-10-25
 
 ### Security

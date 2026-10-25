@@ -1,7 +1,7 @@
 // The drive id lookup has to survive an account that owes a resync.
 //
 // The client checks for an outstanding resync before it runs anything at all,
-// a read-only lookup included, and refuses with exit 126. Granting the resync
+// a read-only lookup included, and refuses with EXIT_RESYNC_REQUIRED. Granting the resync
 // on the account's own directory would delete its item database, so the lookup
 // is repeated in a throwaway directory instead. What has to hold: the caller
 // gets its drive ids, the account's database is untouched, and the rotated

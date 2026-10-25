@@ -2,7 +2,7 @@
 //
 // The station grants the demand once and then treats further exits as ordinary
 // failures. That covered the case it was written for, but if the very start
-// carrying --resync exits 126 again, the grant is already spent: every later
+// carrying --resync exits with the demand again, the grant is already spent: every later
 // restart omitted the flag, was refused for the same reason, and the account
 // restarted forever without ever doing what the client asked for. Found by the
 // Codex review.
@@ -33,7 +33,7 @@ test("every restart still carries --resync, and the backoff grows", async () => 
   // the first grant.
   const reached = await waitFor(() => {
     const s = env.supervisor.status(instance.id);
-    return s.lastExit?.code === 126 && s.failures >= 2;
+    return s.lastExit?.code === 78 && s.failures >= 2;
   }, 20000);
   assert.ok(reached, "the account went through repeated demands");
 

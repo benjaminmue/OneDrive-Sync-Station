@@ -212,7 +212,7 @@ test("the sync interval is set per account and reaches the client config", async
 test("diagnostics and the SharePoint lookup run as the signed-in account", async () => {
   const status = body(await call("GET", "/api/instances/work-business/status"));
   assert.equal(status.ok, true);
-  assert.match(status.text, /No pending remote changes/);
+  assert.match(status.text, /Overall status: IN SYNC/);
 
   const lookup = await call("POST", "/api/sharepoint/lookup", {
     instanceId: "work-business",
