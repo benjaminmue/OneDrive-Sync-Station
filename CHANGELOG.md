@@ -8,6 +8,17 @@ Every published image carries a version. The header of the web UI shows it
 together with the commit the image was built from, so it is always possible to
 tell which build is running.
 
+## [0.8.2] - 2026-10-26
+
+### Changed
+
+- The log view hides the client's routine confirmations as well: each check of
+  the local data prints every unchanged file and folder as a "Processing:" line
+  followed by "has not changed", which on a photo library ran to thousands of
+  lines per cycle. Only such pairs are hidden; an item that changed keeps both
+  lines. The switch, now "Hide routine lines", still covers skipped remote
+  paths and is on by default.
+
 ## [0.8.1] - 2026-10-26
 
 ### Fixed
