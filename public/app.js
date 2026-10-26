@@ -90,6 +90,7 @@ export const en = {
   "type.sharepointLong": "SharePoint library",
 
   "status.notSignedIn": "Not signed in",
+  "status.signInRequired": "Sign-in required",
   "status.running": "Running",
   "status.starting": "Starting…",
   "status.retrying": "Failing",
@@ -104,6 +105,8 @@ export const en = {
     "The sync client keeps exiting right after start ({n} attempts, last {exit}). " +
     "It is retried automatically with increasing delay, check the log.",
   "account.stoppedAfterExit": "Last run ended with {exit}. Check the log before starting again.",
+  "account.signInRequiredAlert":
+    "The sync client has no valid sign-in for this account and was stopped. Sign in again to resume syncing.",
 
   "action.start": "Start",
   "start.noSelectionConfirm":
@@ -824,6 +827,11 @@ function statusFor(instance) {
   if (!instance.authenticated) {
     return { cls: "warn", label: t("status.notSignedIn"), alert: null };
   }
+  // The token file is there, but the client refused it and asked for a new
+  // sign-in. Without this the card read "Running" while nothing synced.
+  if (rt.signInRequired) {
+    return { cls: "warn", label: t("status.signInRequired"), alert: t("account.signInRequiredAlert") };
+  }
   if (instance.discovering) {
     return { cls: "busy", label: t("status.discovering"), alert: null, busy: true };
   }
@@ -936,7 +944,7 @@ function updateSummary(card, instance) {
   // Action row. The primary slot depends on the account state; the disclosure
   // toggles are always there so logs and folders stay reachable in any state.
   const actions = el("div", { className: "acc-actions" });
-  if (!instance.authenticated) {
+  if (!instance.authenticated || instance.runtime.signInRequired) {
     actions.append(
       toggleButton(card, "signin", t("action.signIn"), "primary", () => openSignInPanel(card, instance.id))
     );

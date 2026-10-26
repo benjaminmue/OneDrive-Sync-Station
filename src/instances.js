@@ -11,7 +11,7 @@
 // registry stays the single source of truth and the client config can always be
 // rebuilt from it.
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync, rmSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import {
   CONFIG_DIR,
@@ -179,13 +179,20 @@ export function requireInstance(id) {
 
 /**
  * Whether an instance has completed its Microsoft sign-in. The client writes a
- * refresh token into its config directory once authorisation succeeded, so the
- * presence of that file is the authoritative answer.
+ * refresh token into its config directory once authorisation succeeded, so that
+ * file is the authoritative answer, but only with something in it. An empty file
+ * was seen on real accounts: the client then asks for a new sign-in, and
+ * treating the account as signed in let it start, show as running and run the
+ * folder listing's dry-run fallback, whose restart carries --resync.
  * @param {object} instance Instance record.
- * @returns {boolean} True when a refresh token exists.
+ * @returns {boolean} True when a non-empty refresh token exists.
  */
 export function isAuthenticated(instance) {
-  return existsSync(join(instanceConfDir(instance.id), REFRESH_TOKEN_FILE));
+  try {
+    return readFileSync(refreshTokenPath(instance), "utf8").trim().length > 0;
+  } catch {
+    return false;
+  }
 }
 
 /**

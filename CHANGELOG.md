@@ -8,6 +8,20 @@ Every published image carries a version. The header of the web UI shows it
 together with the commit the image was built from, so it is always possible to
 tell which build is running.
 
+## [0.8.1] - 2026-10-26
+
+### Fixed
+
+- An account whose sync client asks for a new Microsoft sign-in is no longer
+  shown as running. The client waited fifteen minutes for a device code that
+  nobody in the container sees, exited and was started into the same wait
+  again. The station now stops it, says so in the log and shows the account as
+  "Sign-in required" with the sign-in button.
+- An empty refresh token file no longer counts as signed in. Such an account
+  started anyway, and opening its folder list fell back to a dry run whose
+  restart carried `--resync`. It is now shown as not signed in, does not start,
+  and the folder list is refused until it is signed in again.
+
 ## [0.8.0] - 2026-10-25
 
 ### Changed
