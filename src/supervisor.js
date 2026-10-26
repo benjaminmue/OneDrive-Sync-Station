@@ -47,6 +47,16 @@ const MAX_LOCAL_SKIPS = 500;
 const STARTUP_GRACE_MS = 20_000;
 
 /**
+ * The client found no usable sign-in and asks for a new one. In monitor mode it
+ * then prints a device code nobody sees, waits fifteen minutes for it, exits
+ * and is restarted into the same wait, while the process counts as running.
+ * The repeated "Still pending" line is included so a prompt split across two
+ * output chunks is still caught a few seconds later.
+ */
+const SIGN_IN_PROMPT =
+  /RefreshToken file exists but is empty|Please authorise this application by visiting|Still pending authorisation/;
+
+/**
  * The client's own exit codes for "a resync is required" (EXIT_RESYNC_REQUIRED
  * in its util.d). It reports this and stops whenever its configuration file
  * changed since the last run, which includes the very first run after a
@@ -87,6 +97,7 @@ const STOP_GRACE_MS = 15_000;
  * @property {boolean} resyncRecoveryUsed Whether the one-shot resync recovery was already spent.
  * @property {boolean} stopRequested Whether this supervisor asked the client to stop.
  * @property {boolean} held Whether the client must not be started, see hold().
+ * @property {boolean} signInRequired Whether the client was stopped because it asked for a new sign-in.
  * @property {Array<() => void>} exitWaiters Resolvers waiting for the process to be gone.
  * @property {Set<string>} localSkips Local paths the selection excludes from upload.
  * @property {ReturnType<typeof createRingBuffer>} buffer Recent client output.
@@ -106,6 +117,7 @@ function runnerFor(id) {
     state = {
       child: null,
       held: false,
+      signInRequired: false,
       wantRunning: false,
       intentionalRestart: false,
       startedAt: 0,
@@ -215,6 +227,7 @@ export function start(instance, opts = {}) {
   const state = runnerFor(instance.id);
   if (opts.resync) state.resyncPending = true;
   state.wantRunning = true;
+  state.signInRequired = false;
   if (state.child) return;
   clearTimer(state, "restartTimer");
   spawnClient(instance);
@@ -256,8 +269,14 @@ function spawnClient(instance) {
 
   child.stdout.setEncoding("utf8");
   child.stderr.setEncoding("utf8");
-  child.stdout.on("data", (chunk) => record(instance.id, chunk));
-  child.stderr.on("data", (chunk) => record(instance.id, chunk));
+  const onOutput = (chunk) => {
+    record(instance.id, chunk);
+    if (state.child === child && !state.signInRequired && SIGN_IN_PROMPT.test(chunk)) {
+      signInLost(instance.id);
+    }
+  };
+  child.stdout.on("data", onOutput);
+  child.stderr.on("data", onOutput);
 
   // A spawn that never gets off the ground emits 'error' and 'close', but no
   // 'exit'. Without handling it here the runner would keep a child reference
@@ -277,6 +296,28 @@ function spawnClient(instance) {
   if (resyncing) record(instance.id, "[station] starting with --resync");
   log.info("client started", { instance: instance.id, pid: child.pid, resync: resyncing });
   announce(instance.id);
+}
+
+/**
+ * Stop a client that asks for a new sign-in instead of syncing.
+ *
+ * Nothing in a container can answer that prompt, so the account is stopped and
+ * reported as needing a sign-in rather than left to wait and restart. The stop
+ * is a requested one: it does not count as a failure and arms no restart.
+ * @param {string} id Instance id.
+ * @returns {void}
+ */
+function signInLost(id) {
+  const state = runnerFor(id);
+  state.signInRequired = true;
+  state.wantRunning = false;
+  state.failures = 0;
+  state.resyncPending = false;
+  clearTimer(state, "restartTimer");
+  record(id, "[station] the client has no valid sign-in and is waiting for a new one, stopping it; sign the account in again");
+  log.warn("client lost its sign-in", { instance: id });
+  signalStop(state, id);
+  announce(id);
 }
 
 /**
@@ -420,6 +461,9 @@ export function stop(id) {
   const state = runnerFor(id);
   state.wantRunning = false;
   state.failures = 0;
+  // A sign-in starts with a stop, and so does anything else the user does
+  // about the account; the notice has done its job by then.
+  state.signInRequired = false;
   // A queued resync belongs to the run that was just cancelled. Keeping it
   // would silently turn the user's next plain "start" into a resync, and
   // --resync-auth would auto-answer the very confirmation that normally guards
@@ -518,7 +562,7 @@ export function release(id, opts = {}) {
 /**
  * Current runtime state of an instance.
  * @param {string} id Instance id.
- * @returns {{running: boolean, wantRunning: boolean, pid: number|null, startedAt: number, failures: number, lastExit: object|null, resyncPending: boolean}} State snapshot.
+ * @returns {{running: boolean, wantRunning: boolean, pid: number|null, startedAt: number, failures: number, lastExit: object|null, resyncPending: boolean, signInRequired: boolean}} State snapshot.
  */
 export function status(id) {
   const state = runnerFor(id);
@@ -530,6 +574,7 @@ export function status(id) {
     failures: state.failures,
     lastExit: state.lastExit,
     resyncPending: state.resyncPending,
+    signInRequired: state.signInRequired,
     localSkips: [...state.localSkips],
   };
 }

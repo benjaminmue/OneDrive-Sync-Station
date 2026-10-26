@@ -181,3 +181,18 @@ test("options missing from an older registry fall back to their defaults", () =>
   assert.match(config, /threads = "8"/);
   assert.ok(!config.includes("undefined"));
 });
+
+test("an empty refresh token does not count as signed in", () => {
+  // Seen on real accounts: the file was there and empty, the station took the
+  // account for signed in, and the client sat waiting for a device code.
+  const instance = env.instances.createInstance({ name: "Empty Token", type: "business" });
+  const token = env.instances.refreshTokenPath(instance);
+
+  assert.equal(env.instances.isAuthenticated(instance), false, "no file");
+  writeFileSync(token, "");
+  assert.equal(env.instances.isAuthenticated(instance), false, "empty file");
+  writeFileSync(token, " \n");
+  assert.equal(env.instances.isAuthenticated(instance), false, "whitespace only");
+  writeFileSync(token, "token\n");
+  assert.equal(env.instances.isAuthenticated(instance), true, "a token");
+});

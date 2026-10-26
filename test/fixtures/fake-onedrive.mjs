@@ -11,6 +11,7 @@
 //   FAKE_MONITOR_EXIT=n  monitor mode exits with code n after a moment
 //   FAKE_DRY_RUN_HOLD_MS=n  a dry run stays alive n ms after printing its folders
 //   FAKE_RESYNC_EXIT=n   exit code for a resync demand (78 default, 126 = v2.5.11)
+//   FAKE_SIGNIN_PROMPT=1 monitor mode finds an empty token and waits for a device code
 
 import { writeFileSync, existsSync, readFileSync, mkdirSync } from "node:fs";
 import { basename, join } from "node:path";
@@ -240,6 +241,18 @@ if (has("--monitor")) {
     writeFileSync(resyncMarker, "demanded\n");
     process.stdout.write("An application configuration change has been detected\n");
     process.exit(RESYNC_EXIT);
+  }
+
+  // An empty refresh token, as seen on real accounts: the client asks for a
+  // device code sign-in and waits for it, printing a line every few seconds.
+  if (process.env.FAKE_SIGNIN_PROMPT === "1") {
+    process.stdout.write(`RefreshToken file exists but is empty: ${join(confDir || ".", "refresh_token")}\n`);
+    process.stdout.write("Please authorise this application by visiting the following URL:\n");
+    process.stdout.write("https://login.microsoft.com/device\n");
+    process.stdout.write("Enter the following code when prompted: FAKE-CODE-456\n");
+    process.on("SIGINT", () => process.exit(130));
+    setInterval(() => process.stdout.write("[14m 59s remaining] Still pending authorisation ...\n"), 200);
+    await new Promise(() => {});
   }
 
   process.stdout.write(`Starting monitor mode for ${syncDir}\n`);
