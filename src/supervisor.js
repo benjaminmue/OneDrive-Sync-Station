@@ -56,7 +56,36 @@ const STARTUP_GRACE_MS = 20_000;
  * phrases, and its path in an ordinary log line must not stop a healthy client.
  */
 const SIGN_IN_PROMPT =
-  /^(?:RefreshToken file exists but is empty: |Please authorise this application by visiting the following |\[\d+m \d+s remaining\] Still pending authorisation \.\.\.$)/m;
+  /^(?:RefreshToken file exists but is empty: |Please authorise this application by visiting the following |\[\d+m \d+s remaining\] Still pending authorisation \.\.\.$)/;
+
+/** Longer than any prompt line; a partial line beyond this is not one. */
+const MAX_PROMPT_LINE = 4096;
+
+/**
+ * Feed for one output stream that reports whether a complete line is a sign-in
+ * prompt. Pipe chunks end anywhere, also in the middle of a line, so matching a
+ * chunk would take the rest of a file name for the start of a line. Incomplete
+ * lines are carried over to the next chunk instead.
+ * @returns {(chunk: string) => boolean} True when the chunk completed a prompt line.
+ */
+export function promptLineWatcher() {
+  let partial = "";
+  let overlong = false;
+  return (chunk) => {
+    const lines = (partial + chunk).split(/\r?\n/);
+    partial = lines.pop();
+    // The tail of an overlong line is not the start of one.
+    if (overlong && lines.length) {
+      lines.shift();
+      overlong = false;
+    }
+    if (partial.length > MAX_PROMPT_LINE) {
+      partial = "";
+      overlong = true;
+    }
+    return lines.some((line) => SIGN_IN_PROMPT.test(line));
+  };
+}
 
 /**
  * The client's own exit codes for "a resync is required" (EXIT_RESYNC_REQUIRED
@@ -271,14 +300,15 @@ function spawnClient(instance) {
 
   child.stdout.setEncoding("utf8");
   child.stderr.setEncoding("utf8");
-  const onOutput = (chunk) => {
-    record(instance.id, chunk);
-    if (state.child === child && !state.signInRequired && SIGN_IN_PROMPT.test(chunk)) {
-      signInLost(instance.id);
-    }
+  const watch = (stream) => {
+    const isPrompt = promptLineWatcher();
+    stream.on("data", (chunk) => {
+      record(instance.id, chunk);
+      if (isPrompt(chunk) && state.child === child && !state.signInRequired) signInLost(instance.id);
+    });
   };
-  child.stdout.on("data", onOutput);
-  child.stderr.on("data", onOutput);
+  watch(child.stdout);
+  watch(child.stderr);
 
   // A spawn that never gets off the ground emits 'error' and 'close', but no
   // 'exit'. Without handling it here the runner would keep a child reference
