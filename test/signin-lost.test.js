@@ -58,3 +58,21 @@ test("starting again clears the notice", async () => {
   assert.equal(env.supervisor.status(instance.id).signInRequired, false);
   await env.supervisor.stop(instance.id);
 });
+
+test("a file named after the prompt does not stop a healthy client", async () => {
+  // Found by the Codex review: the first version matched anywhere in the
+  // output, so the path of an ordinary file could end a working sync.
+  process.env.FAKE_PROMPT_NAMED_FILE = "1";
+  env.supervisor.start(instance);
+  const mentioned = await waitFor(
+    () => env.supervisor.logs(instance.id).some((e) => e.line.includes("Notes/Still pending")),
+    10_000
+  );
+  delete process.env.FAKE_PROMPT_NAMED_FILE;
+  assert.ok(mentioned, "the stub printed the file names");
+  await new Promise((resolve) => setTimeout(resolve, 1_000));
+  const status = env.supervisor.status(instance.id);
+  assert.equal(status.running, true, "still syncing");
+  assert.equal(status.signInRequired, false);
+  await env.supervisor.stop(instance.id);
+});

@@ -12,6 +12,7 @@
 //   FAKE_DRY_RUN_HOLD_MS=n  a dry run stays alive n ms after printing its folders
 //   FAKE_RESYNC_EXIT=n   exit code for a resync demand (78 default, 126 = v2.5.11)
 //   FAKE_SIGNIN_PROMPT=1 monitor mode finds an empty token and waits for a device code
+//   FAKE_PROMPT_NAMED_FILE=1 monitor mode mentions files named after that prompt
 
 import { writeFileSync, existsSync, readFileSync, mkdirSync } from "node:fs";
 import { basename, join } from "node:path";
@@ -256,6 +257,11 @@ if (has("--monitor")) {
   }
 
   process.stdout.write(`Starting monitor mode for ${syncDir}\n`);
+  // A file named after the client's own sign-in prompt, as ordinary output.
+  if (process.env.FAKE_PROMPT_NAMED_FILE === "1") {
+    process.stdout.write("Downloading file: Notes/Still pending authorisation ....txt ... done\n");
+    process.stdout.write("Skipping file - excluded by skip_file config: ./[14m 59s remaining] Still pending authorisation ...\n");
+  }
   if (has("--resync")) process.stdout.write("Performing a database resync\n");
 
   // Both directions of an active selection, worded as the real client words

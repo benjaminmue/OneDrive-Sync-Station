@@ -51,10 +51,12 @@ const STARTUP_GRACE_MS = 20_000;
  * then prints a device code nobody sees, waits fifteen minutes for it, exits
  * and is restarted into the same wait, while the process counts as running.
  * The repeated "Still pending" line is included so a prompt split across two
- * output chunks is still caught a few seconds later.
+ * output chunks is still caught a few seconds later. Anchored to whole lines
+ * as the client writes them: a synced file may be named after any of these
+ * phrases, and its path in an ordinary log line must not stop a healthy client.
  */
 const SIGN_IN_PROMPT =
-  /RefreshToken file exists but is empty|Please authorise this application by visiting|Still pending authorisation/;
+  /^(?:RefreshToken file exists but is empty: |Please authorise this application by visiting the following |\[\d+m \d+s remaining\] Still pending authorisation \.\.\.$)/m;
 
 /**
  * The client's own exit codes for "a resync is required" (EXIT_RESYNC_REQUIRED
