@@ -8,6 +8,13 @@ Every published image carries a version. The header of the web UI shows it
 together with the commit the image was built from, so it is always possible to
 tell which build is running.
 
+## [0.8.3] - 2026-11-26
+
+### Changed
+
+- Runtime image on Node 26 (`node:26-trixie-slim`).
+- fastify 5.12.8, @fastify/cookie 11.1.5, @fastify/static 10.1.12 (pulls minimatch 11 and glob 14).
+
 ## [0.8.2] - 2026-10-26
 
 ### Changed
